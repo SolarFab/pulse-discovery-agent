@@ -1,0 +1,17 @@
+# secrets & env
+.env
+.env.*
+!.env.example
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# local db data
+pgdata/
+
+# os / editor
+.DS_Store

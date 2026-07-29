@@ -1,0 +1,20 @@
+# Local Postgres for the standalone demo. schema.sql + seed run automatically on first boot
+# (Postgres runs everything in /docker-entrypoint-initdb.d/ against a fresh data dir).
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_DB: pulse
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/00_schema.sql:ro
+      - ./seed/seed_venues.sql:/docker-entrypoint-initdb.d/01_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulse -d pulse"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
