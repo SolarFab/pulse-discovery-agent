@@ -13,8 +13,42 @@ PUB = {"id": "00000000-0000-0000-0000-000000000001", "kind": "venue",
        "name": "Testvenue", "website": "https://venue.example", "instagram": None}
 
 
-def _ev(title="Konzert"):
-    return RawEvent(title=title, start_time=FUTURE)
+def _ev(label="1"):
+    # RawEvent enforces a minimum title length, so build valid titles by construction.
+    return RawEvent(title=f"Konzert {label}", start_time=FUTURE)
+
+
+def _program(n=3):
+    """A list-shaped result: enough events to count as a full program."""
+    return [_ev(i) for i in range(n)]
+
+
+def test_single_event_page_is_rejected_as_program(monkeypatch):
+    """A detail page carries valid Event JSON-LD but is not a program. Accepting it
+    would pin the venue to one event forever."""
+    detail = Recipe(recipe_type="jsonld", url="https://venue.example/events/one-show",
+                    confidence=0.9)
+    monkeypatch.setattr(G, "sniff", lambda w, s, t: detail)
+    monkeypatch.setattr(G, "execute_recipe", lambda r, s: [_ev("Solo")])
+    monkeypatch.setattr(G, "investigate", lambda p, s, t, hints=None: (None, 0, 0.0))
+    st = G.scout_publisher(PUB, dry_run=True)
+    assert st["outcome"] == "none"
+    assert any("not a full program" in h for h in st["hints"])
+
+
+def test_unreachable_site_skips_the_llm(monkeypatch):
+    """A dead domain is not a venue without a program — paying a model to retry
+    a site that never loaded is pure waste."""
+    def dead_sniff(website, session, trace):
+        trace.append({"step": "sniff", "unreachable": True, "note": "homepage unreachable"})
+        return None
+
+    monkeypatch.setattr(G, "sniff", dead_sniff)
+    monkeypatch.setattr(G, "investigate",
+                        lambda *a, **k: pytest.fail("LLM called for an unreachable site"))
+    st = G.scout_publisher(PUB, dry_run=True)
+    assert st["outcome"] == "unreachable"
+    assert st["recipe"].recipe_type == "none"
 
 
 def test_sniff_hit_verifies_and_scouts(monkeypatch):
@@ -43,7 +77,7 @@ def test_failed_verify_falls_through_to_investigator_with_hint(monkeypatch):
     monkeypatch.setattr(G, "investigate", fake_investigate)
     # rss verifies empty (publish dates in past), jsonld yields future events
     monkeypatch.setattr(G, "execute_recipe",
-                        lambda r, s: [_ev()] if r.recipe_type == "jsonld" else [])
+                        lambda r, s: _program() if r.recipe_type == "jsonld" else [])
     st = G.scout_publisher(PUB, dry_run=True)
     assert st["outcome"] == "scouted"
     assert st["recipe"].recipe_type == "jsonld"

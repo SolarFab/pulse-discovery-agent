@@ -21,9 +21,17 @@ HOME_PLAIN = """<html><body>
 <a href="https://other.example/x">Partner</a>
 </body></html>"""
 
+# A real program page lists several events; one event alone is a DETAIL page.
 PROGRAM_JSONLD = """<html><body>
 <script type="application/ld+json">
-{"@type":"MusicEvent","name":"Late Night Jazz","startDate":"2099-09-05T21:00:00+02:00"}
+[{"@type":"MusicEvent","name":"Late Night Jazz","startDate":"2099-09-05T21:00:00+02:00"},
+ {"@type":"MusicEvent","name":"Soul Sunday","startDate":"2099-09-07T20:00:00+02:00"},
+ {"@type":"Event","name":"Lesung","startDate":"2099-09-09T19:00:00+02:00"}]
+</script></body></html>"""
+
+DETAIL_JSONLD = """<html><body>
+<script type="application/ld+json">
+{"@type":"MusicEvent","name":"Nur ein Konzert","startDate":"2099-09-05T21:00:00+02:00"}
 </script></body></html>"""
 
 
@@ -66,6 +74,16 @@ def test_program_page_jsonld_found():
     assert recipe is not None
     assert recipe.recipe_type == "jsonld"
     assert str(recipe.url) == "https://venue.example/programm"
+
+
+def test_single_event_detail_page_is_not_a_program():
+    session = FakeSession({
+        "https://venue.example": HOME_PLAIN,
+        "https://venue.example/programm": DETAIL_JSONLD,
+    })
+    trace = []
+    assert sniff("https://venue.example", session, trace) is None
+    assert any(s.get("events_found") == 1 for s in trace)  # seen, but rejected
 
 
 def test_no_channel_returns_none_with_trace():

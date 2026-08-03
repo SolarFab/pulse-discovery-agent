@@ -24,7 +24,7 @@ from .guards import FetchSession
 from .harvest import execute_recipe
 from .investigator import investigate
 from .recipes import BERLIN, Recipe, future_events
-from .sniffers import sniff
+from .sniffers import MIN_PROGRAM_EVENTS, sniff
 
 MAX_ATTEMPTS = 2  # sniff counts as attempt 0; investigate may run twice
 
@@ -80,6 +80,10 @@ def triage_node(state: ScoutState) -> ScoutState:
 
 def sniff_node(state: ScoutState) -> ScoutState:
     candidate = sniff(state["publisher"]["website"], state["session"], state["trace"])
+    if candidate is None and any(t.get("unreachable") for t in state["trace"]):
+        # The homepage itself never loaded — a dead domain, not a venue without a
+        # program. Marked distinctly so it isn't paid for as if it were unknown.
+        state["outcome"] = "unreachable"
     state["candidate"] = candidate
     state["candidate_from"] = "sniff"
     if candidate:
@@ -123,16 +127,20 @@ def verify_node(state: ScoutState) -> ScoutState:
         events = []
         state["trace"].append({"step": "verify_error", "error": f"{type(exc).__name__}: {exc}"})
     future = future_events(events, _now())
+    # Same list-shaped bar as the sniffer: a page-embedded recipe that yields one
+    # event is a detail page, not a program.
+    needed = 1 if candidate.recipe_type in ("ics_feed", "rss") else MIN_PROGRAM_EVENTS
     state["trace"].append({"step": "verify", "type": candidate.recipe_type,
                            "url": str(candidate.url), "events": len(events),
-                           "future_events": len(future)})
-    if future:
+                           "future_events": len(future), "needed": needed})
+    if len(future) >= needed:
         state["recipe"] = candidate
         state["verified_events"] = len(future)
         state["outcome"] = "scouted"
     else:
         state.setdefault("hints", []).append(
-            f"{candidate.recipe_type} at {candidate.url} (0 future events on execution)")
+            f"{candidate.recipe_type} at {candidate.url} yielded only {len(future)} "
+            f"future events on execution (need {needed}) — not a full program")
         state["candidate"] = None
     return state
 
@@ -141,9 +149,13 @@ def persist_node(state: ScoutState) -> ScoutState:
     p = state["publisher"]
     recipe = state.get("recipe")
     outcome = state.get("outcome") or "none"
-    if recipe is None and outcome == "none":
-        recipe = Recipe(recipe_type="none", confidence=0.7,
-                        scope="scout found no working channel")
+    if recipe is None and outcome in ("none", "unreachable"):
+        recipe = Recipe(
+            recipe_type="none",
+            confidence=0.9 if outcome == "unreachable" else 0.7,
+            scope="website unreachable (dead domain / blocked)" if outcome == "unreachable"
+                  else "scout found no working channel")
+        state["recipe"] = recipe   # what we persist must be visible in the final state
     state["outcome"] = outcome
     seconds = time.monotonic() - state.get("started", time.monotonic())
     state["trace"].append({"step": "persist", "outcome": outcome,
@@ -170,7 +182,11 @@ def _after_triage(state: ScoutState) -> str:
 
 
 def _after_sniff(state: ScoutState) -> str:
-    return "verify" if state.get("candidate") else "investigate"
+    if state.get("candidate"):
+        return "verify"
+    if state.get("outcome") == "unreachable":
+        return "persist"   # the LLM can't fetch what the wall couldn't reach either
+    return "investigate"
 
 
 def _after_investigate(state: ScoutState) -> str:
@@ -196,7 +212,8 @@ def build_graph():
     g.set_entry_point("triage")
     g.add_conditional_edges("triage", _after_triage, {"persist": "persist", "sniff": "sniff"})
     g.add_conditional_edges("sniff", _after_sniff,
-                            {"verify": "verify", "investigate": "investigate"})
+                            {"verify": "verify", "investigate": "investigate",
+                             "persist": "persist"})
     g.add_conditional_edges("investigate", _after_investigate,
                             {"verify": "verify", "persist": "persist"})
     g.add_conditional_edges("verify", _after_verify,

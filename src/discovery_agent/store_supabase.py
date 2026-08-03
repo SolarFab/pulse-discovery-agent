@@ -40,6 +40,25 @@ def _has_channel(rows: list[dict]) -> list[dict]:
     return [r for r in rows if r.get("website") or r.get("instagram")]
 
 
+def _backlog(sb, cols: str, need: int) -> list[dict]:
+    """Eligible publishers that actually have something to scout.
+
+    The channel filter must run in the DATABASE: most publishers still have no
+    website, so filtering a page in Python returns nothing but empty rows.
+    PostgREST allows one `or` per request, which the status filter already uses —
+    hence two passes, websites first (the scoutable ones).
+    """
+    rows = (_eligible(sb.table("publishers").select(cols))
+            .not_.is_("website", "null").order("created_at").order("id").limit(need)
+            .execute().data or [])
+    if len(rows) < need:
+        rows += (_eligible(sb.table("publishers").select(cols))
+                 .is_("website", "null").not_.is_("instagram", "null")
+                 .order("created_at").order("id").limit(need - len(rows))
+                 .execute().data or [])
+    return rows
+
+
 def scout_queue(limit: int) -> list[dict[str, Any]]:
     """Demand-queue matches first (chat misses), then the oldest unscouted publishers."""
     sb = _client()
@@ -64,15 +83,15 @@ def scout_queue(limit: int) -> list[dict[str, Any]]:
 
     # 2. Fill the rest from the backlog.
     if len(picked) < limit:
-        need = (limit - len(picked)) * 3  # over-fetch: some rows have no channel
-        rows = (_eligible(sb.table("publishers").select(cols))
-                .order("created_at").limit(need).execute().data or [])
-        for row in _has_channel(rows):
+        for row in _backlog(sb, cols, limit - len(picked) + 5):
             if len(picked) >= limit:
                 break
             picked.setdefault(row["id"], {**row, "demand": 0})
 
-    return sorted(picked.values(), key=lambda r: (-r["demand"], r.get("created_at") or ""))[:limit]
+    # created_at ties are common (the seed inserted in one transaction), so id breaks
+    # them — batches must be reproducible for the pilot to be resumable.
+    return sorted(picked.values(),
+                  key=lambda r: (-r["demand"], r.get("created_at") or "", r["id"]))[:limit]
 
 
 def save_scout_run(publisher_id: str, model: str, outcome: str, trace: list[dict],

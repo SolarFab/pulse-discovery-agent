@@ -116,8 +116,12 @@ class FetchSession:
             ctype = (resp.headers.get("content-type") or "").split(";")[0].strip()
             if ctype and not any(ctype.startswith(t) for t in ALLOWED_TYPES):
                 raise FetchRefused(f"content-type {ctype!r} not allowed")
+            # Oversized responses of an ALLOWED type are truncated, not refused:
+            # a few real venue sites ship >2MB of HTML, and the parts we need
+            # (feed links, JSON-LD, program markup) are near the top anyway.
             if len(resp.content) > MAX_BYTES:
-                raise FetchRefused(f"response exceeds {MAX_BYTES} bytes")
+                resp._content = resp.content[:MAX_BYTES]
+                resp.headers["x-pulse-truncated"] = "1"
             self.fetches += 1
             return resp
         raise FetchRefused(f"more than {MAX_REDIRECTS} redirects")

@@ -20,6 +20,10 @@ PROGRAM_LINK = re.compile(
     r"veranstalt|events?\b|programm|kalender|calendar|termine|whats.?on|line.?up|agenda",
     re.IGNORECASE,
 )
+# A single event's detail page also carries Event JSON-LD, and its URL also says
+# "events" — accepting one would pin the venue to exactly one event forever. A
+# program must look like a LIST.
+MIN_PROGRAM_EVENTS = 3
 COMMON_FEED_PATHS = ["/events.ics", "/calendar.ics", "/?ical=1", "/events/feed",
                      "/feed", "/rss", "/events.xml"]
 FEED_TYPES = {
@@ -37,13 +41,20 @@ def _try(session: FetchSession, url: str) -> str | None:
         return None
 
 
-def _candidate_if_parses(recipe_type: str, url: str, text: str, trace: list) -> Recipe | None:
+def _candidate_if_parses(recipe_type: str, url: str, text: str, trace: list,
+                         min_events: int = MIN_PROGRAM_EVENTS) -> Recipe | None:
+    """A candidate must parse to a LIST of events, not a single one.
+
+    Feeds (ICS/RSS) are list-shaped by construction, so one event there is still a
+    feed; page-embedded JSON-LD is the trap — hence the higher bar for it.
+    """
     events = _PARSERS[recipe_type](text)
     trace.append({"step": "sniff_parse", "type": recipe_type, "url": url,
                   "events_found": len(events)})
-    if events:
+    threshold = 1 if recipe_type in ("ics_feed", "rss") else min_events
+    if len(events) >= threshold:
         return Recipe(recipe_type=recipe_type, url=url, confidence=0.9,  # type: ignore[arg-type]
-                      scope="full program (sniffed)")
+                      scope=f"sniffed: {len(events)} events listed")
     return None
 
 
@@ -63,9 +74,10 @@ def find_program_links(html_text: str, base_url: str, limit: int = 3) -> list[st
         if url not in seen:
             seen.add(url)
             out.append(url)
-        if len(out) >= limit:
-            break
-    return out
+    # Shallow paths first: /programm is an index, /events/2026-08-08-some-show is one
+    # event. Sorting by depth spends the fetch budget on list pages.
+    out.sort(key=lambda u: (urlparse(u).path.strip("/").count("/"), len(u)))
+    return out[:limit]
 
 
 def declared_feeds(html_text: str, base_url: str) -> list[tuple[str, str]]:
@@ -84,7 +96,10 @@ def sniff(website: str, session: FetchSession, trace: list) -> Recipe | None:
     parses to events — final verification still happens in the verify node."""
     home = _try(session, website)
     if home is None:
-        trace.append({"step": "sniff", "note": f"homepage unreachable: {website}"})
+        # Explicit marker: callers must distinguish "site is dead" from "site has no
+        # program". Only the latter is worth spending a model on.
+        trace.append({"step": "sniff", "unreachable": True,
+                      "note": f"homepage unreachable: {website}"})
         return None
 
     # 1. Declared feeds beat everything.
