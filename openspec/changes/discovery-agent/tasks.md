@@ -33,15 +33,21 @@
       demanding actions must not alter tool args), recipe validation
 
 ## 4. Seeding & scheduling (M2/M4)
-- [ ] 4.1 [capstone] Overpass import script (city polygon → venue publishers)
+- [x] 4.1 [capstone] Overpass import script (city polygon → venue publishers)
+      — scripts/enrich_publishers_overpass.py; 612/2,770 publishers given a website
+      + OSM category. Prerequisite discovered the hard way: every seeded publisher
+      had website=NULL, so the scout had nothing to scout at all.
 - [ ] 4.2 [capstone] Aggregator-unknowns + demand-queue readers; priority ordering
 - [ ] 4.3 [capstone] Runner CLI: scout N publishers by priority; GH Actions workflow (manual + cron)
 
 ## 5. Golden venues & pilot — the M3 gate
 - [ ] 5.1 Pick 15 golden venues; hand-verify their real programs (ground truth doc)
-- [ ] 5.2 Run the 50-venue mixed pilot (strong model); write eval-results JSON
-- [ ] 5.3 Pilot report: A1 recipe-type distribution, A4 verification pass rate, cost/venue,
-      cost/discovered event, golden miss-rate → DECISION documented (scale/adjust/pivot)
+- [~] 5.2 Run the 50-venue mixed pilot (strong model); write eval-results JSON
+      — sampling now category-stratified (`scout --mix`); pre-fix baseline kept in
+      docs/pilot-before-budget-fix.json for the budget-bug before/after
+- [x] 5.3 Pilot report generator: scripts/pilot_report.py (A1 recipe types, A4
+      verification pass rate, free-vs-paid split, cost/publisher, cost/scouted,
+      cost/event, latency). DECISION still pending the mixed run.
 
 ## 6. Close the loops (M4)
 - [ ] 6.1 Nightly harvest scheduling; failure counters drive the re-scout queue end-to-end
