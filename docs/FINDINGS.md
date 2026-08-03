@@ -106,7 +106,26 @@ distribution across the 612 enriched publishers:
 
 ---
 
-## F6 · Long runs must stream, or they look dead
+## F6 · "Future-dated" incidentally separates event feeds from blog feeds
+
+RSS is the riskiest recipe type: `pubDate` is a *publish* date, so a venue's blog
+feed parses perfectly into events that are entirely fictional. Klunkerkranich showed
+exactly this — its `/feed/` yielded 10 well-formed "events" that were blog posts.
+
+**What saves it is not a heuristic but a property**: blog posts are never dated in
+the future. The verification gate's requirement that a recipe yield *future-dated*
+events therefore rejects blog feeds almost by construction, while genuine event
+feeds pass. Freilichtbühne Weißensee's `?feed=rss2&post_type=event` is the positive
+case — spot-checked against the page text, its `pubDate` (19:15 UTC) is the real
+event time (21:15 Berlin, correct for CEST), and all 30 items are upcoming shows.
+
+Worth stating explicitly because it is the reason RSS can stay in the recipe set at
+all. If the gate is ever weakened to "any parseable events", RSS becomes a
+fiction generator.
+
+---
+
+## F7 · Long runs must stream, or they look dead
 
 **Observed.** A 25-venue run produced no console output for over an hour while
 working correctly — Python block-buffers stdout when it is piped or redirected, and
