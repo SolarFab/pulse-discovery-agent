@@ -9,7 +9,7 @@ from discovery_agent.graph import TOOLS, build_graph
 
 def test_settings_have_demo_defaults():
     assert settings.database_url.startswith("postgresql://")
-    assert settings.scout_max_venues > 0
+    assert settings.run_max_publishers > 0
 
 
 def test_graph_compiles():
