@@ -1,4 +1,4 @@
-"""Runtime configuration, loaded from the environment (see .env.example)."""
+"""Runtime configuration (discovery-agent 1.3). All env-driven; see .env.example."""
 
 from __future__ import annotations
 
@@ -8,17 +8,29 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Database (the shared contract with Pulse; a local sample DB in the demo).
+    # Database (the shared contract with Pulse; local sample DB in the demo).
     database_url: str = "postgresql://pulse:pulse@localhost:5433/pulse"
 
-    # LLM — model-agnostic via an OpenAI-compatible gateway (OpenRouter by default).
+    # LLM — model-agnostic via the OpenAI-compatible gateway (OpenRouter).
     openai_base_url: str = "https://openrouter.ai/api/v1"
-    openai_api_key: str = ""
-    scout_model: str = "openai/gpt-4o-mini"
+    openrouter_api_key: str = ""
+    # Strong-first per the workshop: establish the ceiling, benchmark cheaper later (A2).
+    scout_model: str = "openai/gpt-5.2"
 
-    # Cost / scope controls.
-    scout_max_venues: int = 25
-    scout_rescout_days: int = 21
+    # Per-publisher budgets — hard caps, recorded in the trace on abort.
+    scout_max_fetches: int = 8
+    scout_max_usd: float = 0.50
+    scout_max_llm_calls: int = 12
+
+    # Run-level caps.
+    run_max_publishers: int = 50
+    rescout_days: int = 75          # staleness re-scout window (60-90d per spec)
+    none_cooldown_days: int = 90
+
+    # Langfuse (optional — absent keys mean tracing is a no-op).
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "https://cloud.langfuse.com"
 
 
 settings = Settings()
