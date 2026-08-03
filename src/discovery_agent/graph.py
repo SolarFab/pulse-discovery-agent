@@ -18,7 +18,7 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from . import db
+from . import db, observability
 from .config import settings
 from .guards import FetchSession
 from .harvest import execute_recipe
@@ -227,9 +227,21 @@ def build_graph():
 def scout_publisher(publisher: dict[str, Any], *, dry_run: bool = False,
                     llm_enabled: bool = True) -> ScoutState:
     graph = build_graph()
-    return graph.invoke({"publisher": publisher, "dry_run": dry_run,
-                         "llm_enabled": llm_enabled},
-                        {"recursion_limit": 15})
+    with observability.scout_span(publisher) as span:
+        state = graph.invoke({"publisher": publisher, "dry_run": dry_run,
+                              "llm_enabled": llm_enabled},
+                             {"recursion_limit": 15})
+        recipe = state.get("recipe")
+        span.update(output={
+            "outcome": state.get("outcome"),
+            "recipe_type": recipe.recipe_type if recipe else None,
+            "recipe_url": str(recipe.url) if recipe and recipe.url else None,
+            "verified_events": state.get("verified_events", 0),
+            "fetches": state["session"].fetches if state.get("session") else 0,
+            "tokens": state.get("tokens", 0),
+            "usd": round(state.get("usd", 0.0), 6),
+        })
+        return state
 
 
 def run(limit: int | None = None, *, dry_run: bool = False, llm_enabled: bool = True,

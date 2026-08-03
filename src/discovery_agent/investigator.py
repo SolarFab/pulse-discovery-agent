@@ -14,6 +14,7 @@ from typing import Any
 
 from openai import OpenAI
 
+from . import observability
 from .config import settings
 from .guards import FetchSession
 from .recipes import Recipe
@@ -129,21 +130,31 @@ def investigate(
         if deadline is not None and time.monotonic() > deadline:
             trace.append({"step": "abort", "reason": "time budget"})
             return None, tokens, usd
-        try:
-            resp = client.chat.completions.create(
-                model=settings.scout_model,
-                messages=messages,
-                tools=TOOL_SCHEMAS,
-                tool_choice="required",
-                extra_body={"usage": {"include": True}},
+        with observability.llm_generation(settings.scout_model, messages) as gen:
+            try:
+                resp = client.chat.completions.create(
+                    model=settings.scout_model,
+                    messages=messages,
+                    tools=TOOL_SCHEMAS,
+                    tool_choice="required",
+                    extra_body={"usage": {"include": True}},
+                )
+            except Exception as exc:  # noqa: BLE001
+                trace.append({"step": "llm_error", "error": f"{type(exc).__name__}: {exc}"})
+                gen.update(level="ERROR", status_message=str(exc)[:300])
+                return None, tokens, usd
+            call_usd = 0.0
+            if resp.usage:
+                tokens += resp.usage.total_tokens or 0
+                call_usd = float(getattr(resp.usage, "cost", 0) or
+                                 (resp.usage.model_extra or {}).get("cost", 0) or 0)
+                usd += call_usd
+            gen.update(
+                output=resp.choices[0].message.model_dump(exclude_none=True),
+                usage_details={"input": getattr(resp.usage, "prompt_tokens", 0) or 0,
+                               "output": getattr(resp.usage, "completion_tokens", 0) or 0},
+                cost_details={"total": call_usd},
             )
-        except Exception as exc:  # noqa: BLE001
-            trace.append({"step": "llm_error", "error": f"{type(exc).__name__}: {exc}"})
-            return None, tokens, usd
-        if resp.usage:
-            tokens += resp.usage.total_tokens or 0
-            usd += float(getattr(resp.usage, "cost", 0) or
-                         (resp.usage.model_extra or {}).get("cost", 0) or 0)
 
         msg = resp.choices[0].message
         calls = msg.tool_calls or []

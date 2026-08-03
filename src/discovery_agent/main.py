@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 
-from . import db, graph
+from . import db, graph, observability
 from .config import settings
 from .guards import FetchRefused, FetchSession
 from .harvest import execute_recipe
@@ -43,6 +43,7 @@ def cmd_scout(args: argparse.Namespace) -> None:
     results = graph.run(limit=args.limit, dry_run=args.dry_run,
                         llm_enabled=not args.no_llm, categories=categories,
                         on_result=report)
+    observability.flush()   # a batch job exits before the tracer's own timer fires
     scouted = sum(1 for s in results if s.get("outcome") == "scouted")
     _say(f"[scout] done: {len(results)} publishers, {scouted} with working recipes, "
          f"total ${sum(s.get('usd', 0.0) for s in results):.4f}")
