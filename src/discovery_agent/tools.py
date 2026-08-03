@@ -98,6 +98,21 @@ _DATEISH = re.compile(r"\b\d{1,2}[./]\d{1,2}[./ ]|\b\d{4}-\d{2}-\d{2}|januar|feb
                       r"|mo|di|mi|do|fr|sa|so\b", re.IGNORECASE)
 
 
+def _skeleton(el, limit: int = 6) -> str:
+    """The child markup of one sample item, so the model can write date/title
+    selectors instead of guessing. Text alone is not enough: an item whose text
+    reads like an event may contain no date element at all, and a recipe built on
+    it silently yields zero events."""
+    parts = []
+    for child in el.find_all(True, recursive=True)[:limit]:
+        sel = child.name + "".join(f".{c}" for c in (child.get("class") or [])[:2])
+        if child.name == "time" and child.get("datetime"):
+            sel += f"[datetime={child['datetime'][:24]}]"
+        text = child.get_text(" ", strip=True)[:40]
+        parts.append(f"{sel}: {text!r}" if text else sel)
+    return " | ".join(parts) or "(no child elements)"
+
+
 def _structure_hints(soup: BeautifulSoup, top: int = 3) -> list[str]:
     """Deterministic selector material: groups of same-tag/same-class elements that
     repeat like an event list. Without this the model can't write CSS selectors —
@@ -105,25 +120,34 @@ def _structure_hints(soup: BeautifulSoup, top: int = 3) -> list[str]:
     groups: dict[tuple, list] = {}
     for el in soup.find_all(True):
         classes = tuple((el.get("class") or [])[:2])
-        if not classes or el.name in ("script", "style", "span", "a", "li", "path", "svg"):
+        # `li` and `tr` are the most common event-list containers; excluding them to
+        # suppress nav-menu noise threw away the signal along with it. Scoring
+        # (below) demotes the dateless ones instead.
+        if not classes or el.name in ("script", "style", "span", "a", "path", "svg"):
             continue
         groups.setdefault((el.name, classes), []).append(el)
     scored = []
     for (tag, classes), els in groups.items():
-        if not (4 <= len(els) <= 80):
+        if not (4 <= len(els) <= 200):
             continue
         sample_text = els[0].get_text(" ", strip=True)[:200]
         if len(sample_text) < 10:
             continue
-        dateish = 1 if _DATEISH.search(sample_text) else 0
         has_time = 1 if els[0].select_one("time[datetime]") else 0
-        scored.append((dateish + has_time, len(els), tag, classes, sample_text, has_time))
+        # A container with no date ANYWHERE inside it cannot produce events, no
+        # matter how convincingly it repeats — rank those last.
+        dateish = 2 if _DATEISH.search(sample_text) else 0
+        scored.append((dateish + has_time * 2, len(els), tag, classes,
+                       sample_text, has_time, els[0]))
     scored.sort(key=lambda s: (-s[0], -s[1]))
     hints = []
-    for _score, count, tag, classes, sample, has_time in scored[:top]:
+    for score, count, tag, classes, sample, has_time, el in scored[:top]:
         sel = tag + "".join(f".{c}" for c in classes)
-        extra = " [items contain <time datetime>]" if has_time else ""
-        hints.append(f"- {sel}  ({count} items){extra}  sample: \"{sample[:150]}\"")
+        flag = " [contains <time datetime>]" if has_time else (
+            "" if score else " [NO DATE FOUND INSIDE — unusable alone]")
+        hints.append(f"- {sel}  ({count} items){flag}\n"
+                     f"    text: \"{sample[:120]}\"\n"
+                     f"    markup: {_skeleton(el)}")
     return hints
 
 

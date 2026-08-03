@@ -97,6 +97,16 @@ def sniff(website: str, session: FetchSession, trace: list) -> Recipe | None:
     parses to events — final verification still happens in the verify node."""
     home = _try(session, website)
     if home is None:
+        # Seeded URLs carry stale paths (OSM had columbiahalle.berlin/de/, a 404,
+        # while the site itself is fine). One retry at the origin root turns a
+        # written-off venue back into a scoutable one.
+        origin = f"https://{urlparse(website).hostname}"
+        if origin.rstrip("/") != website.rstrip("/"):
+            home = _try(session, origin)
+            if home is not None:
+                trace.append({"step": "sniff", "note": f"fell back to origin {origin}"})
+                website = origin
+    if home is None:
         # Explicit marker: callers must distinguish "site is dead" from "site has no
         # program". Only the latter is worth spending a model on.
         trace.append({"step": "sniff", "unreachable": True,
