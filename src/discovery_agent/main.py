@@ -30,14 +30,19 @@ def cmd_scout(args: argparse.Namespace) -> None:
 
     def report(st) -> None:
         r = st.get("recipe")
-        _say(f"  {st.get('outcome', '?'):15s} {st['publisher']['name'][:40]:40s} "
-             f"{r.recipe_type if r else '-':18s} "
+        _say(f"  {st.get('outcome', '?'):15s} "
+             f"{(st['publisher'].get('category') or '-')[:12]:12s} "
+             f"{st['publisher']['name'][:34]:34s} "
+             f"{r.recipe_type if r else '-':16s} "
              f"events={st.get('verified_events', 0):3d} "
              f"fetches={st['session'].fetches if st.get('session') else 0} "
              f"${st.get('usd', 0.0):.4f}")
 
+    categories = db.PILOT_MIX if args.mix else (
+        args.categories.split(",") if args.categories else None)
     results = graph.run(limit=args.limit, dry_run=args.dry_run,
-                        llm_enabled=not args.no_llm, on_result=report)
+                        llm_enabled=not args.no_llm, categories=categories,
+                        on_result=report)
     scouted = sum(1 for s in results if s.get("outcome") == "scouted")
     _say(f"[scout] done: {len(results)} publishers, {scouted} with working recipes, "
          f"total ${sum(s.get('usd', 0.0) for s in results):.4f}")
@@ -81,6 +86,10 @@ def main() -> None:
     s.add_argument("--limit", type=int, default=settings.run_max_publishers)
     s.add_argument("--dry-run", action="store_true", help="no DB writes")
     s.add_argument("--no-llm", action="store_true", help="sniffers only, zero tokens")
+    s.add_argument("--mix", action="store_true",
+                   help="draw an even sample across venue categories (the pilot sample)")
+    s.add_argument("--categories", type=str, default="",
+                   help="comma-separated categories to restrict the queue to")
     s.set_defaults(fn=cmd_scout)
 
     h = sub.add_parser("harvest", help="execute saved recipes, stage future events")

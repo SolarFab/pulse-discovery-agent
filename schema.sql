@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS publishers (
     venue_id       UUID REFERENCES venues(id) ON DELETE SET NULL,
     website        TEXT,
     instagram      TEXT,
+    category       TEXT,             -- OSM-derived: nightclub, theatre, museum, bar, ...
     status         TEXT NOT NULL DEFAULT 'unscouted'
                    CHECK (status IN ('unscouted','scouted','none','closed')),
     cooldown_until TIMESTAMPTZ,

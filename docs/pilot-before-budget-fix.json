@@ -1,0 +1,35 @@
+{
+  "runs": 16,
+  "outcomes": {
+    "instagram_lead": 5,
+    "unreachable": 2,
+    "scouted": 2,
+    "none": 7
+  },
+  "usd": 0.564963,
+  "usd_per_publisher": 0.0353101875,
+  "verification": {
+    "executed": 13,
+    "passed": 2,
+    "proposals": 21,
+    "invalid": 5
+  },
+  "free": {
+    "runs": 3,
+    "scouted": 1
+  },
+  "paid": {
+    "runs": 13,
+    "scouted": 1
+  },
+  "recipe_types": {
+    "instagram_lead": 5,
+    "none": 9,
+    "jsonld": 1,
+    "html_selector": 1
+  },
+  "seconds": {
+    "median": 42.849999999999994,
+    "max": 715.7
+  }
+}

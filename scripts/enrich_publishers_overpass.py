@@ -91,10 +91,14 @@ def osm_index(elements: list[dict]) -> tuple[dict[str, dict], int]:
             insta = "@" + insta.rstrip("/").rsplit("/", 1)[-1]
         elif insta and not insta.startswith("@"):
             insta = "@" + insta
+        # Category drives scout prioritisation and lets the pilot draw a MIXED
+        # sample instead of an alphabetical one full of corner bars.
+        category = (tags.get("amenity") or tags.get("tourism")
+                    or tags.get("leisure") or tags.get("club") or None)
         key = normalize(name)
         if key:
             by_key[key].append({"website": website or None, "instagram": insta or None,
-                                "osm_name": name})
+                                "category": category, "osm_name": name})
     index, ambiguous = {}, 0
     for key, hits in by_key.items():
         sites = {h["website"] for h in hits if h["website"]}
@@ -106,11 +110,12 @@ def osm_index(elements: list[dict]) -> tuple[dict[str, dict], int]:
 
 
 def fetch_publishers(sb) -> list[dict]:
-    """Page through every publisher lacking a channel (PostgREST caps at 1000/page)."""
+    """Page through publishers missing a channel OR a category (PostgREST caps at
+    1000/page). Category is included so already-enriched rows get backfilled."""
     out, page = [], 0
     while True:
-        rows = (sb.table("publishers").select("id,name,website,instagram")
-                .is_("website", "null").is_("instagram", "null")
+        rows = (sb.table("publishers").select("id,name,website,instagram,category")
+                .or_("category.is.null,and(website.is.null,instagram.is.null)")
                 .order("created_at").range(page * 1000, page * 1000 + 999)
                 .execute().data or [])
         out.extend(rows)
@@ -131,7 +136,7 @@ def main() -> None:
           f"({ambiguous} ambiguous names dropped)")
 
     publishers = fetch_publishers(sb)
-    print(f"[db] {len(publishers)} publishers currently have no channel")
+    print(f"[db] {len(publishers)} publishers missing a channel and/or a category")
 
     matched, updated, skipped_blank = [], 0, 0
     for pub in publishers:
@@ -158,7 +163,8 @@ def main() -> None:
         if args.limit and updated >= args.limit:
             break
         patch = {k: v for k, v in (("website", hit["website"]),
-                                   ("instagram", hit["instagram"])) if v}
+                                   ("instagram", hit["instagram"]),
+                                   ("category", hit["category"])) if v}
         sb.table("publishers").update(patch).eq("id", pub["id"]).execute()
         updated += 1
         if updated % 50 == 0:

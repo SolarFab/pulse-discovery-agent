@@ -34,7 +34,20 @@ def backend_name() -> str:
     return "supabase" if settings.use_supabase else "postgres"
 
 
-def scout_queue(limit: int) -> list[dict[str, Any]]:
+# The workshop's "50 mixed venues": event-likely categories first, plus bars/pubs
+# to measure the low end honestly rather than quietly excluding it.
+PILOT_MIX = ["nightclub", "theatre", "music_venue", "events_venue", "arts_centre",
+             "cinema", "gallery", "museum", "community_centre", "bar", "pub"]
+
+
+def scout_queue(limit: int, categories: list[str] | None = None) -> list[dict[str, Any]]:
+    if categories:
+        store = _store()
+        if not hasattr(store, "stratified_queue"):
+            raise NotImplementedError(
+                "category-stratified sampling needs the Supabase store "
+                "(publishers.category is not populated in the local demo DB)")
+        return store.stratified_queue(limit, categories)
     return _store().scout_queue(limit)
 
 

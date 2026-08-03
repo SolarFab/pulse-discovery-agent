@@ -40,7 +40,7 @@ def _has_channel(rows: list[dict]) -> list[dict]:
     return [r for r in rows if r.get("website") or r.get("instagram")]
 
 
-def _backlog(sb, cols: str, need: int) -> list[dict]:
+def _backlog(sb, cols: str, need: int, category: str | None = None) -> list[dict]:
     """Eligible publishers that actually have something to scout.
 
     The channel filter must run in the DATABASE: most publishers still have no
@@ -48,15 +48,33 @@ def _backlog(sb, cols: str, need: int) -> list[dict]:
     PostgREST allows one `or` per request, which the status filter already uses —
     hence two passes, websites first (the scoutable ones).
     """
-    rows = (_eligible(sb.table("publishers").select(cols))
-            .not_.is_("website", "null").order("created_at").order("id").limit(need)
-            .execute().data or [])
-    if len(rows) < need:
-        rows += (_eligible(sb.table("publishers").select(cols))
-                 .is_("website", "null").not_.is_("instagram", "null")
+    def q():
+        query = _eligible(sb.table("publishers").select(cols))
+        return query.eq("category", category) if category else query
+
+    rows = (q().not_.is_("website", "null")
+            .order("created_at").order("id").limit(need).execute().data or [])
+    if len(rows) < need and not category:
+        rows += (q().is_("website", "null").not_.is_("instagram", "null")
                  .order("created_at").order("id").limit(need - len(rows))
                  .execute().data or [])
     return rows
+
+
+def stratified_queue(limit: int, categories: list[str]) -> list[dict[str, Any]]:
+    """Draw an even sample across categories — the workshop's '50 MIXED venues'.
+
+    An alphabetical queue over-samples corner bars, which have no event program by
+    nature; measuring the scout on those understates it and teaches nothing.
+    """
+    sb = _client()
+    cols = "id,kind,name,website,instagram,status,category,created_at"
+    per = max(1, limit // len(categories))
+    picked: dict[str, dict] = {}
+    for category in categories:
+        for row in _backlog(sb, cols, per, category=category):
+            picked.setdefault(row["id"], {**row, "demand": 0})
+    return sorted(picked.values(), key=lambda r: (r.get("category") or "", r["id"]))[:limit]
 
 
 def scout_queue(limit: int) -> list[dict[str, Any]]:

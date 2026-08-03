@@ -233,13 +233,13 @@ def scout_publisher(publisher: dict[str, Any], *, dry_run: bool = False,
 
 
 def run(limit: int | None = None, *, dry_run: bool = False, llm_enabled: bool = True,
-        on_result=None) -> list[ScoutState]:
+        categories: list[str] | None = None, on_result=None) -> list[ScoutState]:
     """Scout the queue. Returns final states (one per publisher).
 
     `on_result` is called as each publisher finishes so a long run can report
     progress instead of going silent for an hour.
     """
-    publishers = db.scout_queue(limit or settings.run_max_publishers)
+    publishers = db.scout_queue(limit or settings.run_max_publishers, categories)
     results = []
     for pub in publishers:
         try:
