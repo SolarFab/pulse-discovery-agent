@@ -18,8 +18,9 @@
 - [x] 2.4 [capstone] Markers: aggregator_covered (no-op), instagram_lead (handoff row)
 - [x] 2.5 [capstone] Staging writer + recipe health updates (last_success/consecutive_failures)
       — db.stage_events / db.record_source_result + `discovery-agent harvest` CLI
-- [ ] 2.6 [event-map] Staging reader: discovered_events → existing normalize→categorize→facets→
+- [x] 2.6 [event-map] Staging reader: discovered_events → existing normalize→categorize→facets→
       embed→upsert; dedup via fingerprint; nightly step
+      — scrapers/discovery_staging.py, registered as source "discovery_agent"
 
 ## 3. Scout graph (M2)
 - [x] 3.1 [capstone] Sniffers (deterministic): ics/jsonld/rss/link-alt/sitemap/program-link probes
@@ -28,7 +29,9 @@
       resume happens at queue level, not mid-graph)
 - [x] 3.3 [capstone] Tools: guarded fetch_page (text + declared feeds + links + repeating-
       structure selector hints); Pydantic Recipe schema enforced at propose time
-- [ ] 3.4 [capstone] scout_runs trace persistence ✅ + Langfuse callback (still open)
+- [x] 3.4 [capstone] scout_runs trace persistence + Langfuse tracing (observability.py:
+      span per publisher, generation per LLM call; guarded so absent keys / a broken
+      collector degrade to no-ops, with tests)
 - [x] 3.5 [capstone] Unit tests: graph wiring, budget aborts, injection probe (page text
       demanding actions must not alter tool args), recipe validation
 
@@ -37,8 +40,11 @@
       — scripts/enrich_publishers_overpass.py; 612/2,770 publishers given a website
       + OSM category. Prerequisite discovered the hard way: every seeded publisher
       had website=NULL, so the scout had nothing to scout at all.
-- [ ] 4.2 [capstone] Aggregator-unknowns + demand-queue readers; priority ordering
-- [ ] 4.3 [capstone] Runner CLI: scout N publishers by priority; GH Actions workflow (manual + cron)
+- [~] 4.2 [capstone] Demand-queue reader + priority ordering done (chat misses rank first
+      in scout_queue); aggregator-unknowns reader still open
+- [x] 4.3 [capstone] Runner CLI (`scout` / `harvest` / `queue`, with --mix, --dry-run,
+      --no-llm) + GH Actions: tests.yml, discovery.yml (nightly harvest, weekly scout,
+      manual dispatch)
 
 ## 5. Golden venues & pilot — the M3 gate
 - [ ] 5.1 Pick 15 golden venues; hand-verify their real programs (ground truth doc)
