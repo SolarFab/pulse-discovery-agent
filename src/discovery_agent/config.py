@@ -11,6 +11,15 @@ class Settings(BaseSettings):
     # Database (the shared contract with Pulse; local sample DB in the demo).
     database_url: str = "postgresql://pulse:pulse@localhost:5433/pulse"
 
+    # Optional Supabase backend. When both are set, the store talks PostgREST instead
+    # of opening a Postgres socket — the hosted contract needs no DB password.
+    supabase_url: str = ""
+    supabase_service_key: str = ""
+
+    @property
+    def use_supabase(self) -> bool:
+        return bool(self.supabase_url and self.supabase_service_key)
+
     # LLM — model-agnostic via the OpenAI-compatible gateway (OpenRouter).
     openai_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_api_key: str = ""

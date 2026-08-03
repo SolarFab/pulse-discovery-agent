@@ -20,7 +20,7 @@ from .recipes import BERLIN, Recipe, future_events
 def cmd_scout(args: argparse.Namespace) -> None:
     mode = "DRY-RUN " if args.dry_run else ""
     print(f"[scout] {mode}model={settings.scout_model} limit={args.limit} "
-          f"llm={'off' if args.no_llm else 'on'}")
+          f"llm={'off' if args.no_llm else 'on'} store={db.backend_name()}")
     results = graph.run(limit=args.limit, dry_run=args.dry_run,
                         llm_enabled=not args.no_llm)
     for st in results:

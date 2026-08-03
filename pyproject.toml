@@ -16,6 +16,7 @@ dependencies = [
     "tenacity>=8.4.0",
     "icalendar>=7.2.2",
     "python-dateutil>=2.9.0.post0",
+    "supabase>=2.10.0",       # optional hosted backend (PostgREST); psycopg remains the default
 ]
 
 [project.scripts]
