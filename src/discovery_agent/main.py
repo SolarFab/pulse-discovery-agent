@@ -17,23 +17,30 @@ from .harvest import execute_recipe
 from .recipes import BERLIN, Recipe, future_events
 
 
+def _say(msg: str) -> None:
+    """Progress must appear as it happens: a scout run takes minutes per publisher,
+    and Python block-buffers stdout when it is piped or redirected."""
+    print(msg, flush=True)
+
+
 def cmd_scout(args: argparse.Namespace) -> None:
     mode = "DRY-RUN " if args.dry_run else ""
-    print(f"[scout] {mode}model={settings.scout_model} limit={args.limit} "
-          f"llm={'off' if args.no_llm else 'on'} store={db.backend_name()}")
-    results = graph.run(limit=args.limit, dry_run=args.dry_run,
-                        llm_enabled=not args.no_llm)
-    for st in results:
-        p = st["publisher"]
+    _say(f"[scout] {mode}model={settings.scout_model} limit={args.limit} "
+         f"llm={'off' if args.no_llm else 'on'} store={db.backend_name()}")
+
+    def report(st) -> None:
         r = st.get("recipe")
-        print(f"  {st.get('outcome', '?'):15s} {p['name'][:40]:40s} "
-              f"{r.recipe_type if r else '-':18s} "
-              f"events={st.get('verified_events', 0):3d} "
-              f"fetches={st['session'].fetches if st.get('session') else 0} "
-              f"${st.get('usd', 0.0):.4f}")
+        _say(f"  {st.get('outcome', '?'):15s} {st['publisher']['name'][:40]:40s} "
+             f"{r.recipe_type if r else '-':18s} "
+             f"events={st.get('verified_events', 0):3d} "
+             f"fetches={st['session'].fetches if st.get('session') else 0} "
+             f"${st.get('usd', 0.0):.4f}")
+
+    results = graph.run(limit=args.limit, dry_run=args.dry_run,
+                        llm_enabled=not args.no_llm, on_result=report)
     scouted = sum(1 for s in results if s.get("outcome") == "scouted")
-    print(f"[scout] done: {len(results)} publishers, {scouted} with working recipes, "
-          f"total ${sum(s.get('usd', 0.0) for s in results):.4f}")
+    _say(f"[scout] done: {len(results)} publishers, {scouted} with working recipes, "
+         f"total ${sum(s.get('usd', 0.0) for s in results):.4f}")
 
 
 def cmd_harvest(args: argparse.Namespace) -> None:

@@ -30,7 +30,8 @@ def test_single_event_page_is_rejected_as_program(monkeypatch):
                     confidence=0.9)
     monkeypatch.setattr(G, "sniff", lambda w, s, t: detail)
     monkeypatch.setattr(G, "execute_recipe", lambda r, s: [_ev("Solo")])
-    monkeypatch.setattr(G, "investigate", lambda p, s, t, hints=None: (None, 0, 0.0))
+    monkeypatch.setattr(G, "investigate",
+                        lambda p, s, t, hints=None, deadline=None: (None, 0, 0.0))
     st = G.scout_publisher(PUB, dry_run=True)
     assert st["outcome"] == "none"
     assert any("not a full program" in h for h in st["hints"])
@@ -70,7 +71,7 @@ def test_failed_verify_falls_through_to_investigator_with_hint(monkeypatch):
 
     monkeypatch.setattr(G, "sniff", lambda w, s, t: sniffed)
 
-    def fake_investigate(publisher, session, trace, hints=None):
+    def fake_investigate(publisher, session, trace, hints=None, deadline=None):
         seen_hints["hints"] = hints
         return investigated, 1000, 0.01
 
@@ -86,7 +87,7 @@ def test_failed_verify_falls_through_to_investigator_with_hint(monkeypatch):
 
 def test_investigator_none_persists_none(monkeypatch):
     monkeypatch.setattr(G, "sniff", lambda w, s, t: None)
-    monkeypatch.setattr(G, "investigate", lambda p, s, t, hints=None: (None, 500, 0.005))
+    monkeypatch.setattr(G, "investigate", lambda p, s, t, hints=None, deadline=None: (None, 500, 0.005))
     st = G.scout_publisher(PUB, dry_run=True)
     assert st["outcome"] == "none"
     assert st["tokens"] == 500
@@ -98,7 +99,7 @@ def test_retry_is_bounded(monkeypatch):
     calls = {"n": 0}
     bad = Recipe(recipe_type="jsonld", url="https://venue.example/x", confidence=0.9)
 
-    def fake_investigate(publisher, session, trace, hints=None):
+    def fake_investigate(publisher, session, trace, hints=None, deadline=None):
         calls["n"] += 1
         return bad, 100, 0.001
 

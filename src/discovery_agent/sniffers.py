@@ -12,6 +12,7 @@ from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
+from .config import settings
 from .guards import FetchRefused, FetchSession
 from .harvest import parse_ics, parse_jsonld, parse_rss
 from .recipes import Recipe
@@ -135,7 +136,8 @@ def sniff(website: str, session: FetchSession, trace: list) -> Recipe | None:
     # 4. Well-known calendar paths (cheap guesses, only while budget allows).
     origin = f"https://{urlparse(website).hostname}"
     for path in COMMON_FEED_PATHS:
-        if session.fetches >= 12:  # sniffing stays cheap; the LLM path has its own budget
+        if session.fetches >= settings.scout_max_sniff_fetches:
+            trace.append({"step": "abort", "reason": "sniff fetch budget"})
             break
         text = _try(session, origin + path)
         if not text:

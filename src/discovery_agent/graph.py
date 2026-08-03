@@ -99,8 +99,10 @@ def investigate_node(state: ScoutState) -> ScoutState:
         state["candidate"] = None
         state["outcome"] = "none"
         return state
+    deadline = state.get("started", time.monotonic()) + settings.scout_max_seconds
     recipe, tokens, usd = investigate(state["publisher"], state["session"],
-                                      state["trace"], hints=state.get("hints"))
+                                      state["trace"], hints=state.get("hints"),
+                                      deadline=deadline)
     state["tokens"] = state.get("tokens", 0) + tokens
     state["usd"] = state.get("usd", 0.0) + usd
     state["candidate"] = recipe
@@ -230,14 +232,22 @@ def scout_publisher(publisher: dict[str, Any], *, dry_run: bool = False,
                         {"recursion_limit": 15})
 
 
-def run(limit: int | None = None, *, dry_run: bool = False,
-        llm_enabled: bool = True) -> list[ScoutState]:
-    """Scout the queue. Returns final states (one per publisher)."""
+def run(limit: int | None = None, *, dry_run: bool = False, llm_enabled: bool = True,
+        on_result=None) -> list[ScoutState]:
+    """Scout the queue. Returns final states (one per publisher).
+
+    `on_result` is called as each publisher finishes so a long run can report
+    progress instead of going silent for an hour.
+    """
     publishers = db.scout_queue(limit or settings.run_max_publishers)
     results = []
     for pub in publishers:
         try:
-            results.append(scout_publisher(pub, dry_run=dry_run, llm_enabled=llm_enabled))
+            state = scout_publisher(pub, dry_run=dry_run, llm_enabled=llm_enabled)
         except Exception as exc:  # noqa: BLE001 — one publisher never kills the run
-            print(f"[scout] ERROR on {pub['name']}: {type(exc).__name__}: {exc}")
+            print(f"[scout] ERROR on {pub['name']}: {type(exc).__name__}: {exc}", flush=True)
+            continue
+        results.append(state)
+        if on_result:
+            on_result(state)
     return results

@@ -27,9 +27,14 @@ class Settings(BaseSettings):
     scout_model: str = "openai/gpt-5.2"
 
     # Per-publisher budgets — hard caps, recorded in the trace on abort.
-    scout_max_fetches: int = 8
+    # The sniffer and the investigator get SEPARATE fetch allowances: they share one
+    # FetchSession (for politeness and the domain wall), so a single shared counter
+    # let cheap deterministic probing starve the paid investigation of every fetch.
+    scout_max_sniff_fetches: int = 12
+    scout_max_fetches: int = 8          # additional fetches, for the LLM loop alone
     scout_max_usd: float = 0.50
     scout_max_llm_calls: int = 12
+    scout_max_seconds: float = 300.0    # wall-clock per publisher
 
     # Run-level caps.
     run_max_publishers: int = 50

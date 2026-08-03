@@ -9,6 +9,7 @@ FetchSession), and USD (OpenRouter usage accounting). Every step lands in `trace
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 from openai import OpenAI
@@ -102,6 +103,7 @@ def investigate(
     session: FetchSession,
     trace: list[dict],
     hints: list[str] | None = None,
+    deadline: float | None = None,
 ) -> tuple[Recipe | None, int, float]:
     """Run the tool loop. Returns (recipe|None, total_tokens, usd)."""
     if not settings.openrouter_api_key:
@@ -116,10 +118,16 @@ def investigate(
     messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT},
                             {"role": "user", "content": user}]
     tokens, usd = 0, 0.0
+    # The sniffer already spent fetches on this session; the LLM's allowance is
+    # counted from here, not from zero.
+    fetch_baseline = session.fetches
 
     for call_n in range(settings.scout_max_llm_calls):
         if usd >= settings.scout_max_usd:
             trace.append({"step": "abort", "reason": "usd budget", "usd": round(usd, 4)})
+            return None, tokens, usd
+        if deadline is not None and time.monotonic() > deadline:
+            trace.append({"step": "abort", "reason": "time budget"})
             return None, tokens, usd
         try:
             resp = client.chat.completions.create(
@@ -174,7 +182,7 @@ def investigate(
                 return recipe, tokens, usd
 
             if call.function.name == "fetch_page":
-                if session.fetches >= settings.scout_max_fetches:
+                if session.fetches - fetch_baseline >= settings.scout_max_fetches:
                     trace.append({"step": "abort", "reason": "fetch budget"})
                     messages.append({"role": "tool", "tool_call_id": call.id,
                                      "content": "FETCH BUDGET EXHAUSTED. Call propose_recipe "
