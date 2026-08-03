@@ -16,8 +16,8 @@ dependencies = [
     "tenacity>=8.4.0",
     "icalendar>=7.2.2",
     "python-dateutil>=2.9.0.post0",
-    "supabase>=2.10.0",
-    "langfuse>=3.0.0",        # optional tracing; guarded so absence is a no-op       # optional hosted backend (PostgREST); psycopg remains the default
+    "supabase>=2.10.0",        # optional hosted backend (PostgREST); psycopg is the default
+    "langfuse>=3.0.0",         # optional tracing; guarded so absence is a no-op
 ]
 
 [project.scripts]
