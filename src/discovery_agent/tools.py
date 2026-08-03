@@ -13,11 +13,17 @@ prompt injection). Tool errors come back as strings so the loop stays in control
 from __future__ import annotations
 
 import re
+import warnings
 from urllib.parse import urljoin, urlparse
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
 from .guards import FetchRefused, FetchSession
+
+# We deliberately parse whatever a URL returns with one lenient parser: a page that
+# turns out to be a feed is a *finding*, not an error, and the scout's own signal
+# checks handle it. Suppressed so the warning does not drown the run log.
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 MAX_TEXT = 3500
 MAX_LINKS = 40
