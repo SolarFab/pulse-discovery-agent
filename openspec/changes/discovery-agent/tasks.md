@@ -3,30 +3,33 @@
 [capstone] = this repo · [event-map] = private pipeline · [db] = shared Supabase contract
 
 ## 1. Contract & scaffolding (M1/M2)
-- [ ] 1.1 [db] Migration: `publishers`, `publisher_sources`, `scout_runs`, `discovered_events`
+- [x] 1.1 [db] Migration: `publishers`, `publisher_sources`, `scout_runs`, `discovered_events`
       (+ mirror in this repo's schema.sql + docker seed)
-- [ ] 1.2 [db] Seed publishers from existing `venues` (kind=venue) + Luma calendars/RA promoter
-      names where extractable (kind=organizer)
-- [ ] 1.3 [capstone] Config: SCOUT_MODEL (strong default), budgets (fetches/tokens/$),
+- [x] 1.2 [db] Seed publishers from existing `venues` (kind=venue) + Luma calendars/RA promoter
+      names where extractable (kind=organizer) — 2,770 venue-publishers seeded
+- [x] 1.3 [capstone] Config: SCOUT_MODEL (strong default), budgets (fetches/tokens/$),
       Langfuse keys optional-guarded
 
 ## 2. Harvest executor first (verification depends on it) (M2)
-- [ ] 2.1 [capstone] Fetch security wall (single module) + robots/rate-limit helpers + tests
+- [x] 2.1 [capstone] Fetch security wall (single module) + robots/rate-limit helpers + tests
       (private-IP rejection, redirect re-check, size/type caps)
-- [ ] 2.2 [capstone] Strategies: ics_feed, jsonld, rss + fixture tests each
-- [ ] 2.3 [capstone] Strategy: html_selector (+ high-confidence gate) + fixtures
-- [ ] 2.4 [capstone] Markers: aggregator_covered (no-op), instagram_lead (handoff row)
-- [ ] 2.5 [capstone] Staging writer + recipe health updates (last_success/consecutive_failures)
+- [x] 2.2 [capstone] Strategies: ics_feed, jsonld, rss + fixture tests each
+- [x] 2.3 [capstone] Strategy: html_selector (+ high-confidence gate) + fixtures
+- [x] 2.4 [capstone] Markers: aggregator_covered (no-op), instagram_lead (handoff row)
+- [x] 2.5 [capstone] Staging writer + recipe health updates (last_success/consecutive_failures)
+      — db.stage_events / db.record_source_result + `discovery-agent harvest` CLI
 - [ ] 2.6 [event-map] Staging reader: discovered_events → existing normalize→categorize→facets→
       embed→upsert; dedup via fingerprint; nightly step
 
 ## 3. Scout graph (M2)
-- [ ] 3.1 [capstone] Sniffers (deterministic): ics/jsonld/rss/link-alt/sitemap/program-link probes
-- [ ] 3.2 [capstone] LangGraph: state, nodes (triage/sniff/investigate/propose/verify/persist),
-      conditional edges, retry budget, checkpointer
-- [ ] 3.3 [capstone] Tools: guarded fetch_url, list_links; Pydantic Recipe schema
-- [ ] 3.4 [capstone] scout_runs trace persistence + Langfuse callback (optional-guarded)
-- [ ] 3.5 [capstone] Unit tests: graph wiring, budget aborts, injection probe (page text
+- [x] 3.1 [capstone] Sniffers (deterministic): ics/jsonld/rss/link-alt/sitemap/program-link probes
+- [x] 3.2 [capstone] LangGraph: state, nodes (triage/sniff/investigate/propose/verify/persist),
+      conditional edges, retry budget (no checkpointer: runs are single-shot per publisher;
+      resume happens at queue level, not mid-graph)
+- [x] 3.3 [capstone] Tools: guarded fetch_page (text + declared feeds + links + repeating-
+      structure selector hints); Pydantic Recipe schema enforced at propose time
+- [ ] 3.4 [capstone] scout_runs trace persistence ✅ + Langfuse callback (still open)
+- [x] 3.5 [capstone] Unit tests: graph wiring, budget aborts, injection probe (page text
       demanding actions must not alter tool args), recipe validation
 
 ## 4. Seeding & scheduling (M2/M4)
