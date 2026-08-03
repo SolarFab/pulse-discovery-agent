@@ -29,7 +29,7 @@ def test_broken_client_degrades_to_noop():
     with patch.object(settings, "langfuse_public_key", "pk"), \
          patch.object(settings, "langfuse_secret_key", "sk"), \
          patch.object(O, "_AVAILABLE", True), \
-         patch.object(O, "get_client", side_effect=RuntimeError("collector down")):
+         patch.object(O, "Langfuse", side_effect=RuntimeError("collector down")):
         assert not O.enabled()
         with O.scout_span({"name": "V"}) as span:
             span.update(output={})
@@ -52,7 +52,7 @@ def test_span_failure_mid_run_does_not_propagate():
     with patch.object(settings, "langfuse_public_key", "pk"), \
          patch.object(settings, "langfuse_secret_key", "sk"), \
          patch.object(O, "_AVAILABLE", True), \
-         patch.object(O, "get_client", return_value=ExplodingClient()):
+         patch.object(O, "Langfuse", return_value=ExplodingClient()):
         with O.scout_span({"name": "V"}) as span:
             span.update(output={})           # no raise
         with O.llm_generation("m", [{}, {}]) as gen:
