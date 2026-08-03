@@ -1,32 +1,68 @@
-# Discovery Agent
+# Discovery Agent v2 — Publisher Discovery System
+
+(Supersedes the v1 venue-scout proposal; incorporates the 2026-08 product workshop.)
 
 ## Why
-Pulse's event coverage is bottlenecked by *finding sources*, not scraping them. Berlin has
-thousands of venues, and each publishes its events somewhere different — its own site, an events
-subpage, Instagram, Resident Advisor, Eventbrite, a Telegram channel, or nowhere machine-readable.
-Hand-maintaining a scraper per venue does not scale, and a generic crawler misses most of them.
 
-The open-ended part is **deciding where a given venue publishes** — it needs reasoning, tool use,
-and per-venue memory. That is a genuine agent. Once the channel is known, extracting events from it
-is deterministic and cheap. So we build a **scout agent** that discovers the channel and writes a
-reusable recipe (`venue_sources`); ordinary scheduled code re-scrapes from the recipe.
+Pulse's aggregators are genre lenses, not mirrors: RA carries Berghain's club nights but not
+Kantine's concerts; kulturdaten carries institutions but no kiez culture. Measured gaps: rap = 3
+events citywide; Sisyphos/Anomalie absent; Kantine am Berghain at ~15% of its real program. The
+bottleneck is not scraping — it is *finding out where each publisher announces events*. That
+question is open-ended and per-publisher → the one place an agent is earned. Everything around
+it stays deterministic.
 
 ## What Changes
-- Add a LangGraph scout that, for each venue lacking a fresh recipe, investigates where it publishes
-  events using a small set of tools and emits `venue_sources` rows (channel_type, url, scrape_recipe,
-  confidence).
-- Persist recipes idempotently (upsert per venue+channel) with `last_checked` for staleness-based
-  re-scouting.
-- Enforce a per-run venue cap and a tool-call budget per venue for cost control.
-- Treat all fetched web text as untrusted data (indirect-injection safe).
 
-## Non-goals
-- Re-scraping known channels, ranking, categorising, or embedding events (deterministic, separate).
-- Writing `events` rows (the scout produces recipes; extraction is a later, non-agent step).
-- Provider-specific model features; the LLM stays behind the model-agnostic gateway.
+- **Publisher model.** The unit of discovery is the *publisher*: `venue` (fixed place),
+  `organizer` (wanders across venues — party crews, Luma calendars, RA promoters), `curator`
+  (publishes others' events). Events link venue (where) + organizer (who). Aggregator coverage
+  is always per-facet, never "venue done".
+- **Three loops, one agent.** SEED (deterministic: OSM/Overpass, aggregator unknowns, demand
+  queue, submissions) → SCOUT (the agent: investigates channels, writes typed recipes) →
+  HARVEST (deterministic nightly executor runs recipes; 3 failures → re-scout).
+- **Hybrid scout graph** (LangGraph core): deterministic fast path first — sniffers for
+  ICS/JSON-LD/RSS resolve venues with ZERO tokens; the bounded LLM loop is the escalation path
+  for the messy remainder. Verification gate: a recipe exists only if executing it now (via the
+  real executor) yields ≥1 future dated event.
+- **Recipes, not generated code**: `ics_feed | jsonld | rss | html_selector |
+  aggregator_covered | instagram_lead | none` — one generic executor, model fills parameters.
+- **Demand-first ordering**: chat misses (`discovery_requests`, live in prod) outrank the
+  backlog — enabling the full-loop demo (chat miss → overnight scout → next-day answer).
+
+## Capabilities
+
+### New Capabilities
+- `publisher-discovery` — seeding, the scout, recipes+verification, harvest, self-healing,
+  demand queue, security guards, observability, and the pilot evaluation gate.
+
+### Removed
+- `venue-discovery` (v1 draft) — superseded before implementation.
 
 ## Impact
-- New capability: `venue-discovery`.
-- Code: `src/discovery_agent/{graph,tools,db,config,main}.py`; contract table `venue_sources`.
-- Cost: bounded by `SCOUT_MAX_VENUES` and the per-venue tool-call budget; recipes amortise the LLM
-  spend across all future re-scrapes.
+
+- **DB contract** (shared with Pulse, schema.sql): `publishers`, `publisher_sources`,
+  `scout_runs`, `discovered_events` (staging); `discovery_requests` already live in prod.
+- **IP boundary preserved**: this repo writes RAW events to staging; the private pipeline
+  ingests staging through its existing normalize→categorize→facets→embed chain (one small
+  reader added there). No code crosses repos — only tables.
+- **Cost**: sniff path ≈ $0; LLM path budgeted per publisher (fetch/token/$ caps); strong-first
+  model via OpenRouter (`SCOUT_MODEL`), offline so latency is irrelevant; measured
+  cost-per-discovered-event is a first-class metric.
+- **Security**: the scout follows links read on untrusted pages → SSRF wall (https-only,
+  public-IP resolve check, redirect re-checks, size/type caps), per-venue domain budget,
+  robots.txt + rate limits, page text as delimited data only.
+- **Observability**: Langfuse traces (shared project with the concierge) + durable
+  `scout_runs` reasoning traces (the demo artifact).
+
+## Non-goals
+
+- Agent-generated scraper code · full Instagram pipeline (leads only, harvested by the existing
+  Apify path) · city-list compilation by LLM (OSM does it) · Hamburg build (documented scale-out
+  only) · runtime agent skills (v2 option: channel playbooks) · autonomous writes to `events`
+  (staging only; enrichment stays in the private pipeline).
+
+## Decision gate (M3)
+
+The 50-venue mixed pilot decides scale/adjust/pivot on measured evidence: recipe-type
+distribution (A1 — the load-bearing bet), verification pass rate (A4), cost per venue and per
+discovered event, golden-venue miss-rate. Findings are written up either way.
