@@ -1,0 +1,82 @@
+name: Discovery
+
+# Two loops on one schedule (workshop roadmap M4):
+#   harvest — nightly, deterministic, free: run every known recipe, stage events
+#   scout   — weekly, paid: investigate publishers that have no recipe yet
+#
+# Split deliberately. Harvest is cheap and must run often; scouting costs money per
+# publisher, so it runs on a smaller cadence with an explicit cap and can always be
+# triggered by hand when the demand queue fills up.
+
+on:
+  schedule:
+    - cron: "15 3 * * *"    # 03:15 UTC nightly — harvest
+    - cron: "45 4 * * 1"    # 04:45 UTC Mondays — scout
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which loop to run"
+        type: choice
+        options: [harvest, scout]
+        default: harvest
+      limit:
+        description: "Publishers to scout (scout only)"
+        default: "25"
+      mix:
+        description: "Draw a category-stratified sample (scout only)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: discovery
+  cancel-in-progress: false      # never interrupt a run mid-write
+
+jobs:
+  harvest:
+    if: >
+      github.event.schedule == '15 3 * * *' ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'harvest')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+      LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install -e .
+      - name: Harvest known recipes
+        run: discovery-agent harvest
+
+  scout:
+    if: >
+      github.event.schedule == '45 4 * * 1' ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'scout')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+      LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install -e .
+      - name: Scout unscouted publishers
+        run: |
+          discovery-agent scout \
+            --limit "${{ inputs.limit || 25 }}" \
+            ${{ (inputs.mix == false) && ' ' || '--mix' }}
+      - name: Pilot report
+        if: always()
+        run: python scripts/pilot_report.py
