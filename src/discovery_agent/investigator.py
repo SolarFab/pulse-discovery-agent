@@ -30,8 +30,11 @@ Preference order (pick the highest that actually exists):
 3. rss — an RSS/Atom feed whose items are events
 4. html_selector — a program page with a repeating event list (give CSS selectors:
    item_selector required; title_selector; date via <time datetime> is preferred)
-5. instagram_lead — events only on Instagram (give the handle, no scraping)
-6. none — no event publishing found
+5. embedded_json — the page ships an empty shell and renders from a <script> JSON
+   blob (no repeating markup to select). Propose this when the visible program text
+   exists but REPEATING STRUCTURES shows nothing usable.
+6. instagram_lead — events only on Instagram (give the handle, no scraping)
+7. none — no event publishing found
 
 Rules:
 - Investigate with fetch_page. Follow DECLARED FEEDS and program/calendar links first.
@@ -70,7 +73,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "type": "object",
                 "properties": {
                     "recipe_type": {"type": "string",
-                                    "enum": ["ics_feed", "jsonld", "rss", "html_selector",
+                                    "enum": ["ics_feed", "jsonld", "rss", "html_selector", "embedded_json",
                                              "instagram_lead", "none"]},
                     "url": {"type": "string", "description": "https URL (feed/page); omit for instagram_lead/none"},
                     "params": {

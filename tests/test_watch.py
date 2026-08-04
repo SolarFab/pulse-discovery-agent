@@ -21,9 +21,9 @@ def test_steps_stream_during_the_run_not_after(monkeypatch):
         trace.append({"step": "sniff_hit", "type": "ics_feed", "url": str(recipe.url)})
         # by now the callback must already have received triage AND this step
         assert [s.get("step") for s in seen] == ["triage", "sniff_hit"]
-        return recipe
+        return [recipe]
 
-    monkeypatch.setattr(G, "sniff", sniff_and_check)
+    monkeypatch.setattr(G, "sniff_candidates", sniff_and_check)
     monkeypatch.setattr(G, "execute_recipe",
                         lambda r, s: [RawEvent(title=f"Show {i}", start_time=FUTURE)
                                       for i in range(3)])
@@ -34,7 +34,7 @@ def test_steps_stream_during_the_run_not_after(monkeypatch):
 
 def test_a_broken_renderer_cannot_kill_a_run(monkeypatch):
     """Display is not allowed to cost a paid scout run."""
-    monkeypatch.setattr(G, "sniff", lambda w, s, t: None)
+    monkeypatch.setattr(G, "sniff_candidates", lambda w, s, t: [])
     monkeypatch.setattr(G, "investigate",
                         lambda p, s, t, hints=None, deadline=None: (None, 0, 0.0))
 

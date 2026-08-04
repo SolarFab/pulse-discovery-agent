@@ -2,7 +2,14 @@
 
 from datetime import UTC, datetime
 
-from discovery_agent.harvest import parse_html_selector, parse_ics, parse_jsonld, parse_rss
+from discovery_agent.harvest import (
+    parse_date_lines,
+    parse_embedded_json,
+    parse_html_selector,
+    parse_ics,
+    parse_jsonld,
+    parse_rss,
+)
 from discovery_agent.recipes import Recipe, SelectorParams, future_events
 
 ICS = """BEGIN:VCALENDAR
@@ -97,3 +104,44 @@ def test_malformed_content_yields_empty_not_crash():
     assert parse_ics("not an ics") == []
     assert parse_rss("<broken") == []
     assert parse_jsonld("<script type='application/ld+json'>{bad json}</script>") == []
+
+
+# ── embedded JSON + date-prefixed lines (Sowieso-shaped) ──────────────────────
+
+EMBEDDED_JSON_HTML = (
+    '<html><body><div class="loading_animation pulsing"></div>'
+    '<script type="text/json">'
+    '{"id":1,"title":"Concerts","content":'
+    '"<h2>Sowieso</h2>Doors 20:00<br><br>'
+    'Aug 8&nbsp; <b>Tarek Yamani</b>&nbsp; solo piano<br><br>'
+    'Aug 14&nbsp; <b>Hyper Elastic Jinx</b><br><br>'
+    'Aug 22&nbsp; <b>Gumpert-Bauer</b> trio<br>"}'
+    "</script></body></html>"
+)
+
+
+def test_embedded_json_finds_events_in_a_script_payload():
+    """The page ships a shell; the program lives in the site's own JSON blob."""
+    evs = parse_embedded_json(EMBEDDED_JSON_HTML, "https://venue.example/Concerts")
+    titles = [e.title for e in evs]
+    assert len(evs) == 3
+    assert "Tarek Yamani solo piano" in titles[0]
+    assert evs[1].start_time.month == 8 and evs[1].start_time.day == 14
+
+
+def test_jsonld_is_not_double_parsed_as_embedded_json():
+    """JSON-LD has its own parser; embedded_json must skip it."""
+    assert parse_embedded_json(JSONLD_HTML) == []
+
+
+def test_date_lines_infer_the_next_occurrence_of_a_bare_date():
+    """Listings write 'Aug 8' with no year — that means the next one."""
+    now = datetime(2026, 12, 20, tzinfo=UTC)
+    evs = parse_date_lines("Jan 5&nbsp; <b>Winter Session</b><br>", now=now)
+    assert len(evs) == 1
+    assert evs[0].start_time.year == 2027   # January is next year, not the one just gone
+
+
+def test_date_lines_ignore_prose_without_a_leading_date():
+    evs = parse_date_lines("<p>Entry by donation. Doors at 20:00, concerts 20:30.</p>")
+    assert evs == []

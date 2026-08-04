@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS publisher_sources (
     id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     publisher_id          UUID NOT NULL REFERENCES publishers(id) ON DELETE CASCADE,
     recipe_type           TEXT NOT NULL CHECK (recipe_type IN
-                          ('ics_feed','jsonld','rss','html_selector',
+                          ('ics_feed','jsonld','rss','html_selector','embedded_json',
                            'aggregator_covered','instagram_lead','none')),
     url                   TEXT,
     recipe                JSONB,

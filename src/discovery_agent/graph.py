@@ -24,7 +24,7 @@ from .guards import FetchSession
 from .harvest import execute_recipe
 from .investigator import investigate
 from .recipes import BERLIN, Recipe, future_events
-from .sniffers import MIN_PROGRAM_EVENTS, sniff
+from .sniffers import MIN_PROGRAM_EVENTS, sniff_candidates
 
 MAX_ATTEMPTS = 2  # sniff counts as attempt 0; investigate may run twice
 
@@ -33,6 +33,7 @@ class ScoutState(TypedDict, total=False):
     publisher: dict[str, Any]
     session: FetchSession          # shared budgets across sniff/investigate/verify
     candidate: Recipe | None
+    candidates: list[Recipe]       # remaining deterministic candidates, best first
     candidate_from: str            # "triage" | "sniff" | "investigate"
     recipe: Recipe | None          # verified (or marker) recipe to persist
     verified_events: int
@@ -79,7 +80,13 @@ def triage_node(state: ScoutState) -> ScoutState:
 
 
 def sniff_node(state: ScoutState) -> ScoutState:
-    candidate = sniff(state["publisher"]["website"], state["session"], state["trace"])
+    # Collect EVERY deterministic candidate; verify pops them one at a time, so a
+    # rejected free candidate falls through to the next FREE one rather than
+    # straight to the paid model.
+    candidates = sniff_candidates(state["publisher"]["website"], state["session"],
+                                  state["trace"])
+    state["candidates"] = candidates
+    candidate = candidates.pop(0) if candidates else None
     if candidate is None and any(t.get("unreachable") for t in state["trace"]):
         # The homepage itself never loaded — a dead domain, not a venue without a
         # program. Marked distinctly so it isn't paid for as if it were unknown.
@@ -143,7 +150,8 @@ def verify_node(state: ScoutState) -> ScoutState:
         state.setdefault("hints", []).append(
             f"{candidate.recipe_type} at {candidate.url} yielded only {len(future)} "
             f"future events on execution (need {needed}) — not a full program")
-        state["candidate"] = None
+        remaining = state.get("candidates") or []
+        state["candidate"] = remaining.pop(0) if remaining else None
     return state
 
 
@@ -198,6 +206,8 @@ def _after_investigate(state: ScoutState) -> str:
 def _after_verify(state: ScoutState) -> str:
     if state.get("recipe"):
         return "persist"
+    if state.get("candidate"):
+        return "verify"          # another free candidate is still on the ladder
     if state.get("attempts", 0) < MAX_ATTEMPTS and state.get("llm_enabled", True):
         return "investigate"   # one more try, now with failure hints
     state["outcome"] = "none"
@@ -219,7 +229,8 @@ def build_graph():
     g.add_conditional_edges("investigate", _after_investigate,
                             {"verify": "verify", "persist": "persist"})
     g.add_conditional_edges("verify", _after_verify,
-                            {"persist": "persist", "investigate": "investigate"})
+                            {"persist": "persist", "investigate": "investigate",
+                             "verify": "verify"})
     g.add_edge("persist", END)
     return g.compile()
 

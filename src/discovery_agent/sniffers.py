@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 
 from .config import settings
 from .guards import FetchRefused, FetchSession
-from .harvest import parse_ics, parse_jsonld, parse_rss
+from .harvest import parse_embedded_json, parse_ics, parse_jsonld, parse_rss
 from .recipes import Recipe
 
 PROGRAM_LINK = re.compile(
@@ -32,10 +32,19 @@ FEED_TYPES = {
     "application/rss+xml": "rss",
     "application/atom+xml": "rss",
 }
-_PARSERS = {"ics_feed": parse_ics, "jsonld": parse_jsonld, "rss": parse_rss}
+_PARSERS = {"ics_feed": parse_ics, "jsonld": parse_jsonld, "rss": parse_rss,
+            "embedded_json": parse_embedded_json}
 
 
-def _try(session: FetchSession, url: str) -> str | None:
+def _try(session: FetchSession, url: str, seen: set[str] | None = None) -> str | None:
+    """Fetch once per URL per run. The ladder legitimately arrives at the same URL
+    from two directions (a declared /feed/ is also a well-known path), and each
+    repeat spent a fetch from a budget that exists to be spent on new ground."""
+    key = url.rstrip("/")
+    if seen is not None:
+        if key in seen:
+            return None
+        seen.add(key)
     try:
         return session.guarded_fetch(url).text
     except (FetchRefused, Exception):
@@ -93,16 +102,30 @@ def declared_feeds(html_text: str, base_url: str) -> list[tuple[str, str]]:
 
 
 def sniff(website: str, session: FetchSession, trace: list) -> Recipe | None:
-    """Run the whole deterministic ladder. Returns the first recipe whose content
-    parses to events — final verification still happens in the verify node."""
-    home = _try(session, website)
+    """First deterministic candidate, or None. See sniff_candidates for the rest."""
+    found = sniff_candidates(website, session, trace, stop_after=1)
+    return found[0] if found else None
+
+
+def sniff_candidates(website: str, session: FetchSession, trace: list,
+                     stop_after: int = 3) -> list[Recipe]:
+    """EVERY deterministic candidate, best first.
+
+    Returning only the first one was a real cost bug: a venue whose RSS feed is a
+    stale blog (Klunkerkranich, Sowieso) had that single candidate rejected by
+    verification and went straight to the paid model — even though a perfectly good
+    embedded_json program sat one rung further down the same free ladder.
+    """
+    found: list[Recipe] = []
+    seen: set[str] = set()
+    home = _try(session, website, seen)
     if home is None:
         # Seeded URLs carry stale paths (OSM had columbiahalle.berlin/de/, a 404,
         # while the site itself is fine). One retry at the origin root turns a
         # written-off venue back into a scoutable one.
         origin = f"https://{urlparse(website).hostname}"
         if origin.rstrip("/") != website.rstrip("/"):
-            home = _try(session, origin)
+            home = _try(session, origin, seen)
             if home is not None:
                 trace.append({"step": "sniff", "note": f"fell back to origin {origin}"})
                 website = origin
@@ -111,37 +134,57 @@ def sniff(website: str, session: FetchSession, trace: list) -> Recipe | None:
         # program". Only the latter is worth spending a model on.
         trace.append({"step": "sniff", "unreachable": True,
                       "note": f"homepage unreachable: {website}"})
-        return None
+        return []
 
     # 1. Declared feeds beat everything.
     for rtype, url in declared_feeds(home, website):
-        text = _try(session, url)
+        text = _try(session, url, seen)
         if text:
             r = _candidate_if_parses(rtype, url, text, trace)
             if r:
-                return r
+                found.append(r)
+                if len(found) >= stop_after:
+                    return found
 
-    # 2. JSON-LD on the homepage itself.
+    # 2. JSON-LD on the homepage itself, then the site's own JSON payload.
     r = _candidate_if_parses("jsonld", website, home, trace)
     if r:
-        return r
+        found.append(r)
+        if len(found) >= stop_after:
+            return found
+    r = _candidate_if_parses("embedded_json", website, home, trace)
+    if r:
+        found.append(r)
+        if len(found) >= stop_after:
+            return found
 
     # 3. Program pages: JSON-LD there, plus feed declarations one level deep.
     program_pages: list[tuple[str, str]] = []
     for url in find_program_links(home, website):
-        text = _try(session, url)
+        text = _try(session, url, seen)
         if not text:
             continue
         program_pages.append((url, text))
         r = _candidate_if_parses("jsonld", url, text, trace)
         if r:
-            return r
+            found.append(r)
+            if len(found) >= stop_after:
+                return found
+        # A page that ships a shell and fills itself from a script blob has no
+        # markup to select — the payload is the only way in (see FINDINGS).
+        r = _candidate_if_parses("embedded_json", url, text, trace)
+        if r:
+            found.append(r)
+            if len(found) >= stop_after:
+                return found
         for rtype, feed_url in declared_feeds(text, url):
-            feed_text = _try(session, feed_url)
+            feed_text = _try(session, feed_url, seen)
             if feed_text:
                 r = _candidate_if_parses(rtype, feed_url, feed_text, trace)
                 if r:
-                    return r
+                    found.append(r)
+                    if len(found) >= stop_after:
+                        return found
 
     # 4. Well-known calendar paths (cheap guesses, only while budget allows).
     origin = f"https://{urlparse(website).hostname}"
@@ -149,7 +192,7 @@ def sniff(website: str, session: FetchSession, trace: list) -> Recipe | None:
         if session.fetches >= settings.scout_max_sniff_fetches:
             trace.append({"step": "abort", "reason": "sniff fetch budget"})
             break
-        text = _try(session, origin + path)
+        text = _try(session, origin + path, seen)
         if not text:
             continue
         rtype = "ics_feed" if text.lstrip().startswith("BEGIN:VCALENDAR") else \
@@ -157,8 +200,11 @@ def sniff(website: str, session: FetchSession, trace: list) -> Recipe | None:
         if rtype:
             r = _candidate_if_parses(rtype, origin + path, text, trace)
             if r:
-                return r
+                found.append(r)
+                if len(found) >= stop_after:
+                    return found
 
-    trace.append({"step": "sniff", "note": "no structured channel found",
-                  "program_pages_seen": [u for u, _ in program_pages]})
-    return None
+    if not found:
+        trace.append({"step": "sniff", "note": "no structured channel found",
+                      "program_pages_seen": [u for u, _ in program_pages]})
+    return found

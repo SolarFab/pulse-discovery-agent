@@ -63,3 +63,67 @@ def test_redirect_to_private_refused(monkeypatch):
     s._robots_ok = lambda url, host: True  # isolate the redirect check
     with pytest.raises(FetchRefused, match="non-public"):
         s.guarded_fetch("https://venue.example/linktree")
+
+
+def test_http_redirect_hop_is_followed_but_never_read(monkeypatch):
+    """apex -> http://www -> https://www is extremely common. The middle hop may be
+    followed (its IP is still checked); content is only ever read over https."""
+    monkeypatch.setattr(guards.socket, "getaddrinfo", _fake_resolver({
+        "venue.example": "93.184.216.34",
+        "www.venue.example": "93.184.216.34",
+    }))
+    hops = ["http://www.venue.example/", "https://www.venue.example/"]
+
+    class Resp:
+        def __init__(self, code, loc=None):
+            self.status_code = code
+            self.headers = {"location": loc} if loc else {"content-type": "text/html"}
+            self.content = b"<html>ok</html>"
+            self.text = "<html>ok</html>"
+
+        def raise_for_status(self):
+            pass
+
+    seen = []
+
+    def fake_get(url, **_kw):
+        seen.append(url)
+        if url == "https://venue.example/":
+            return Resp(301, hops[0])
+        if url == hops[0]:
+            return Resp(301, hops[1])
+        return Resp(200)
+
+    monkeypatch.setattr(guards.httpx, "get", fake_get)
+    s = FetchSession()
+    s._robots_ok = lambda url, host: True
+    resp = s.guarded_fetch("https://venue.example/")
+    assert resp.status_code == 200
+    assert seen[-1].startswith("https://")   # content read over https only
+
+
+def test_http_final_response_is_refused(monkeypatch):
+    """A redirect chain that ENDS on http must not have its content read."""
+    monkeypatch.setattr(guards.socket, "getaddrinfo",
+                        _fake_resolver({"venue.example": "93.184.216.34"}))
+
+    class Resp:
+        def __init__(self, code, loc=None):
+            self.status_code = code
+            self.headers = {"location": loc} if loc else {"content-type": "text/html"}
+            self.content = b"x"
+            self.text = "x"
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **_kw):
+        if url == "https://venue.example/":
+            return Resp(301, "http://venue.example/insecure")
+        return Resp(200)
+
+    monkeypatch.setattr(guards.httpx, "get", fake_get)
+    s = FetchSession()
+    s._robots_ok = lambda url, host: True
+    with pytest.raises(FetchRefused, match="refusing to read content"):
+        s.guarded_fetch("https://venue.example/")

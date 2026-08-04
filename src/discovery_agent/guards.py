@@ -52,10 +52,19 @@ def _resolve_public(host: str) -> None:
             raise FetchRefused(f"{host} resolves to non-public address {ip}")
 
 
-def check_url(url: str) -> str:
-    """Validate scheme + host publicness. Returns the netloc (lowercased)."""
+def check_url(url: str, *, allow_http_hop: bool = False) -> str:
+    """Validate scheme + host publicness. Returns the netloc (lowercased).
+
+    `allow_http_hop` relaxes the scheme check for an INTERMEDIATE redirect target
+    only. Plenty of real sites bounce apex -> http://www -> https://www, and
+    refusing the middle hop made healthy venues look unreachable (sowiesoberlin.com
+    was reported 'unreachable' while a plain client loaded it fine). The relaxation
+    is narrow on purpose: the private-IP check still runs on every hop, and content
+    is still only ever READ over https — see guarded_fetch.
+    """
     parsed = urlparse(url)
-    if parsed.scheme != "https":
+    allowed = ("https", "http") if allow_http_hop else ("https",)
+    if parsed.scheme not in allowed:
         raise FetchRefused(f"only https allowed, got {parsed.scheme!r}")
     if not parsed.hostname:
         raise FetchRefused("no host in URL")
@@ -110,8 +119,12 @@ class FetchSession:
                 if not location:
                     raise FetchRefused("redirect without location")
                 current = str(httpx.URL(current).join(location))
-                check_url(current)  # every hop re-checked against the wall
+                # Every hop is re-checked for a public IP; an http hop may be
+                # FOLLOWED but never read from (the final response must be https).
+                check_url(current, allow_http_hop=True)
                 continue
+            if urlparse(current).scheme != "https":
+                raise FetchRefused(f"refusing to read content over {urlparse(current).scheme!r}")
             resp.raise_for_status()
             ctype = (resp.headers.get("content-type") or "").split(";")[0].strip()
             if ctype and not any(ctype.startswith(t) for t in ALLOWED_TYPES):

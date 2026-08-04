@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator
 BERLIN = ZoneInfo("Europe/Berlin")
 
 RecipeType = Literal[
-    "ics_feed", "jsonld", "rss", "html_selector",
+    "ics_feed", "jsonld", "rss", "html_selector", "embedded_json",
     "aggregator_covered", "instagram_lead", "none",
 ]
 
@@ -46,7 +46,8 @@ class Recipe(BaseModel):
         return v
 
     def needs_url(self) -> bool:
-        return self.recipe_type in ("ics_feed", "jsonld", "rss", "html_selector")
+        return self.recipe_type in ("ics_feed", "jsonld", "rss", "html_selector",
+                                    "embedded_json")
 
 
 class RawEvent(BaseModel):

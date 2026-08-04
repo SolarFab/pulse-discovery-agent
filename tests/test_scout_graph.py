@@ -28,7 +28,7 @@ def test_single_event_page_is_rejected_as_program(monkeypatch):
     would pin the venue to one event forever."""
     detail = Recipe(recipe_type="jsonld", url="https://venue.example/events/one-show",
                     confidence=0.9)
-    monkeypatch.setattr(G, "sniff", lambda w, s, t: detail)
+    monkeypatch.setattr(G, "sniff_candidates", lambda w, s, t: [detail])
     monkeypatch.setattr(G, "execute_recipe", lambda r, s: [_ev("Solo")])
     monkeypatch.setattr(G, "investigate",
                         lambda p, s, t, hints=None, deadline=None: (None, 0, 0.0))
@@ -42,9 +42,9 @@ def test_unreachable_site_skips_the_llm(monkeypatch):
     a site that never loaded is pure waste."""
     def dead_sniff(website, session, trace):
         trace.append({"step": "sniff", "unreachable": True, "note": "homepage unreachable"})
-        return None
+        return []
 
-    monkeypatch.setattr(G, "sniff", dead_sniff)
+    monkeypatch.setattr(G, "sniff_candidates", dead_sniff)
     monkeypatch.setattr(G, "investigate",
                         lambda *a, **k: pytest.fail("LLM called for an unreachable site"))
     st = G.scout_publisher(PUB, dry_run=True)
@@ -54,7 +54,7 @@ def test_unreachable_site_skips_the_llm(monkeypatch):
 
 def test_sniff_hit_verifies_and_scouts(monkeypatch):
     recipe = Recipe(recipe_type="ics_feed", url="https://venue.example/e.ics", confidence=0.9)
-    monkeypatch.setattr(G, "sniff", lambda w, s, t: recipe)
+    monkeypatch.setattr(G, "sniff_candidates", lambda w, s, t: [recipe])
     monkeypatch.setattr(G, "execute_recipe", lambda r, s: [_ev("Jazz"), _ev("Kino")])
     st = G.scout_publisher(PUB, dry_run=True)
     assert st["outcome"] == "scouted"
@@ -69,7 +69,7 @@ def test_failed_verify_falls_through_to_investigator_with_hint(monkeypatch):
                           confidence=0.8)
     seen_hints = {}
 
-    monkeypatch.setattr(G, "sniff", lambda w, s, t: sniffed)
+    monkeypatch.setattr(G, "sniff_candidates", lambda w, s, t: [sniffed])
 
     def fake_investigate(publisher, session, trace, hints=None, deadline=None):
         seen_hints["hints"] = hints
@@ -86,7 +86,7 @@ def test_failed_verify_falls_through_to_investigator_with_hint(monkeypatch):
 
 
 def test_investigator_none_persists_none(monkeypatch):
-    monkeypatch.setattr(G, "sniff", lambda w, s, t: None)
+    monkeypatch.setattr(G, "sniff_candidates", lambda w, s, t: [])
     monkeypatch.setattr(G, "investigate", lambda p, s, t, hints=None, deadline=None: (None, 500, 0.005))
     st = G.scout_publisher(PUB, dry_run=True)
     assert st["outcome"] == "none"
@@ -103,7 +103,7 @@ def test_retry_is_bounded(monkeypatch):
         calls["n"] += 1
         return bad, 100, 0.001
 
-    monkeypatch.setattr(G, "sniff", lambda w, s, t: None)
+    monkeypatch.setattr(G, "sniff_candidates", lambda w, s, t: [])
     monkeypatch.setattr(G, "investigate", fake_investigate)
     monkeypatch.setattr(G, "execute_recipe", lambda r, s: [])
     st = G.scout_publisher(PUB, dry_run=True)
@@ -120,7 +120,7 @@ def test_no_website_instagram_becomes_lead():
 
 
 def test_no_llm_mode_never_investigates(monkeypatch):
-    monkeypatch.setattr(G, "sniff", lambda w, s, t: None)
+    monkeypatch.setattr(G, "sniff_candidates", lambda w, s, t: [])
     monkeypatch.setattr(G, "investigate",
                         lambda *a, **k: pytest.fail("LLM called in --no-llm mode"))
     st = G.scout_publisher(PUB, dry_run=True, llm_enabled=False)
@@ -129,3 +129,22 @@ def test_no_llm_mode_never_investigates(monkeypatch):
 
 def test_graph_compiles():
     assert G.build_graph() is not None
+
+
+def test_rejected_free_candidate_falls_through_to_the_next_free_one(monkeypatch):
+    """The cost bug this fixes: a stale RSS feed was the only candidate considered,
+    so its rejection sent the run to the paid model even though a working
+    embedded_json program sat one rung lower on the same free ladder."""
+    stale_rss = Recipe(recipe_type="rss", url="https://venue.example/rss", confidence=0.9)
+    payload = Recipe(recipe_type="embedded_json", url="https://venue.example/",
+                     confidence=0.9)
+    monkeypatch.setattr(G, "sniff_candidates", lambda w, s, t: [stale_rss, payload])
+    monkeypatch.setattr(G, "execute_recipe",
+                        lambda r, s: _program() if r.recipe_type == "embedded_json" else [])
+    monkeypatch.setattr(G, "investigate",
+                        lambda *a, **k: pytest.fail("paid model used while a free "
+                                                    "candidate was still untried"))
+    st = G.scout_publisher(PUB, dry_run=True)
+    assert st["outcome"] == "scouted"
+    assert st["recipe"].recipe_type == "embedded_json"
+    assert st["usd"] == 0.0

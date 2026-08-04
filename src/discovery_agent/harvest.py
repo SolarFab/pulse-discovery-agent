@@ -205,6 +205,128 @@ def parse_html_selector(html_text: str, recipe: Recipe, base_url: str) -> list[R
     return events
 
 
+# ── Date-prefixed lines ──────────────────────────────────────────────────────
+# Small venues often publish a program as flat text separated by <br>, with no
+# per-event container at all: "Aug 8  Band Name  (instruments)". No selector can
+# address those, so the line itself is the unit.
+
+_MONTHS = ("jan", "feb", "mar", "mär", "apr", "may", "mai", "jun", "jul", "aug",
+           "sep", "oct", "okt", "nov", "dec", "dez")
+_LINE_DATE = re.compile(
+    r"^\s*(?:"
+    r"(?P<d1>\d{1,2})[.\s]+(?P<m1>" + "|".join(_MONTHS) + r")[a-zä]*\.?"      # 8. Aug
+    r"|(?P<m2>" + "|".join(_MONTHS) + r")[a-zä]*\.?\s+(?P<d2>\d{1,2})"        # Aug 8
+    r"|(?P<d3>\d{1,2})\.(?P<mo3>\d{1,2})\.(?P<y3>\d{2,4})?"                   # 08.08.26
+    r")\s*(?P<rest>.*)$", re.IGNORECASE)
+_MONTH_NUM = {"jan": 1, "feb": 2, "mar": 3, "mär": 3, "apr": 4, "may": 5, "mai": 5,
+              "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10, "okt": 10,
+              "nov": 11, "dec": 12, "dez": 12}
+
+
+def _roll_year(month: int, day: int, now: datetime) -> int:
+    """Undated listings mean the NEXT occurrence. A month already well past is
+    next year's; a slightly-past date is this year's (a listing lingering a few
+    days after the show is normal)."""
+    year = now.year
+    try:
+        candidate = datetime(year, month, day, tzinfo=BERLIN)
+    except ValueError:
+        return year
+    if (now - candidate).days > 60:
+        year += 1
+    return year
+
+
+def parse_date_lines(html_fragment: str, base_url: str | None = None,
+                     now: datetime | None = None) -> list[RawEvent]:
+    """Events from <br>-separated, date-prefixed lines of text."""
+    now = now or datetime.now(tz=BERLIN)
+    soup = BeautifulSoup(html_fragment, "html.parser")
+    # Line breaks come ONLY from <br> and block elements. Using get_text("\n")
+    # instead would split inline tags too, tearing "Aug 8" away from the <b>title</b>
+    # that follows it and leaving a dateless fragment behind.
+    for br in soup.find_all("br"):
+        br.replace_with("\n")
+    for block in soup.find_all(["p", "div", "li", "tr", "h1", "h2", "h3", "h4"]):
+        block.append("\n")
+    text = ihtml.unescape(soup.get_text("")).replace("\xa0", " ")
+
+    events: list[RawEvent] = []
+    for raw_line in text.split("\n"):
+        line = re.sub(r"\s+", " ", raw_line).strip()
+        if len(line) < 6:
+            continue
+        m = _LINE_DATE.match(line)
+        if not m:
+            continue
+        g = m.groupdict()
+        if g["m1"] or g["m2"]:
+            month = _MONTH_NUM[(g["m1"] or g["m2"]).lower()[:3]
+                               if (g["m1"] or g["m2"]).lower()[:3] in _MONTH_NUM
+                               else (g["m1"] or g["m2"]).lower()]
+            day = int(g["d1"] or g["d2"])
+            year = _roll_year(month, day, now)
+        else:
+            day, month = int(g["d3"]), int(g["mo3"])
+            year = int(g["y3"]) if g["y3"] else _roll_year(month, day, now)
+            if year < 100:
+                year += 2000
+        title = (g["rest"] or "").strip(" –—-·|,")
+        if len(title) < 3:
+            continue
+        try:
+            start = datetime(year, month, day, 20, 0, tzinfo=BERLIN)
+        except ValueError:
+            continue
+        ev = _mk_event(title=_clean(title, 300), start_time=start, url=base_url)
+        if ev:
+            events.append(ev)
+    return events
+
+
+def parse_embedded_json(html_text: str, base_url: str | None = None) -> list[RawEvent]:
+    """Events from a site's OWN JSON payload embedded in a <script> tag.
+
+    Distinct from JSON-LD: no schema, just a page-builder blob (Cargo, Squarespace,
+    Wix …) whose string values hold the rendered HTML. Measured at ~7% of publisher
+    sites — small, but it is the only way in when the page ships a shell and fills
+    itself from a script (sowiesoberlin.com serves its whole program this way).
+    """
+    events: list[RawEvent] = []
+    seen: set[tuple] = set()
+    soup = BeautifulSoup(html_text, "html.parser")
+
+    def harvest_strings(node, depth=0):
+        if depth > 8:
+            return
+        if isinstance(node, str):
+            if "<" in node and len(node) > 120:      # a string carrying markup
+                for ev in parse_date_lines(node, base_url):
+                    key = (ev.title, ev.start_time)
+                    if key not in seen:
+                        seen.add(key)
+                        events.append(ev)
+            return
+        if isinstance(node, dict):
+            for v in node.values():
+                harvest_strings(v, depth + 1)
+        elif isinstance(node, list):
+            for v in node[:200]:
+                harvest_strings(v, depth + 1)
+
+    for script in soup.find_all("script"):
+        body = (script.string or "").strip()
+        if len(body) < 100 or not body.startswith(("{", "[")):
+            continue
+        if "ld+json" in (script.get("type") or ""):
+            continue                                  # JSON-LD has its own parser
+        try:
+            harvest_strings(json.loads(body))
+        except json.JSONDecodeError:
+            continue
+    return events
+
+
 # ── The executor ─────────────────────────────────────────────────────────────
 
 def execute_recipe(recipe: Recipe, session: FetchSession | None = None) -> list[RawEvent]:
@@ -224,4 +346,6 @@ def execute_recipe(recipe: Recipe, session: FetchSession | None = None) -> list[
         return parse_rss(text)
     if recipe.recipe_type == "html_selector":
         return parse_html_selector(text, recipe, base_url=str(recipe.url))
+    if recipe.recipe_type == "embedded_json":
+        return parse_embedded_json(text, base_url=str(recipe.url))
     return []

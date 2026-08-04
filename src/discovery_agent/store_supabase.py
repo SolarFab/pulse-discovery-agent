@@ -17,7 +17,7 @@ from supabase import Client, create_client
 from .config import settings
 from .recipes import RawEvent, Recipe
 
-EXECUTABLE_TYPES = ("ics_feed", "jsonld", "rss", "html_selector")
+EXECUTABLE_TYPES = ("ics_feed", "jsonld", "rss", "html_selector", "embedded_json")
 MAX_FAILURES = 5
 
 
