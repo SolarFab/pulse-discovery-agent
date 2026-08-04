@@ -51,6 +51,13 @@ def scout_queue(limit: int, categories: list[str] | None = None) -> list[dict[st
     return _store().scout_queue(limit)
 
 
+def find_publishers(name: str, limit: int = 8) -> list[dict[str, Any]]:
+    store = _store()
+    if not hasattr(store, "find_publishers"):
+        raise NotImplementedError("name search needs the Supabase store")
+    return store.find_publishers(name, limit)
+
+
 def save_scout_run(publisher_id: str, model: str, outcome: str, trace: list[dict],
                    tokens: int, usd: float, seconds: float) -> None:
     _store().save_scout_run(publisher_id, model, outcome, trace, tokens, usd, seconds)

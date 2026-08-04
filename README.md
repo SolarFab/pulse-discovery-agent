@@ -74,13 +74,28 @@ make db-up                # start local Postgres + load schema.sql + seed publis
 make install              # install deps (uv)
 ```
 
-The CLI has three commands:
+The CLI:
 ```bash
-discovery-agent queue                  # who's next, demand-queue misses ranked first
-discovery-agent scout --limit 25 --mix # find recipes (--mix = category-stratified sample)
-discovery-agent scout --no-llm         # sniffers only: zero tokens, zero cost
-discovery-agent harvest                # run every saved recipe, stage the events
+discovery-agent queue                    # who's next, demand-queue misses ranked first
+discovery-agent watch "Berghain"         # scout ONE publisher, narrated live
+discovery-agent watch --url some-venue.de --no-llm   # try any site, zero cost, no writes
+discovery-agent scout --limit 25 --mix   # batch run (--mix = category-stratified sample)
+discovery-agent harvest                  # run every saved recipe, stage the events
 ```
+
+`watch` is the way to see the agent think — it prints each decision as it happens:
+
+```
+  · probing ics_feed      https://holzmarkt.com/events.ics  -> 10 event(s)
+  ✓ deterministic hit: ics_feed at https://holzmarkt.com/events.ics  (0 tokens)
+  ✓ verification: executed the recipe now -> 10 event(s), 10 in the future (needs 1)
+  · done: scouted  (6 fetches, 0 tokens, $0.0)
+```
+
+and on a site with no feed, the model's investigation is equally visible — every page
+it fetches, what it proposes, and whether execution backs the proposal up.
+
+`--dry-run` runs the whole graph without writing; `--no-llm` uses sniffers only.
 
 `--dry-run` runs the whole graph without writing. `--no-llm` is worth trying first: it costs
 nothing and, per the pilot, still finds a working recipe for a meaningful share of venues.

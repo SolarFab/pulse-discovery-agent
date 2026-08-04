@@ -77,6 +77,22 @@ def stratified_queue(limit: int, categories: list[str]) -> list[dict[str, Any]]:
     return sorted(picked.values(), key=lambda r: (r.get("category") or "", r["id"]))[:limit]
 
 
+def find_publishers(name: str, limit: int = 8) -> list[dict[str, Any]]:
+    """Name search for pointing the scout at one publisher on demand.
+
+    Returns candidates rather than guessing: 'Columbia' matches both Columbia
+    Theater and Columbiahalle, and scouting the wrong one costs real money.
+    """
+    sb = _client()
+    cols = "id,kind,name,website,instagram,status,category"
+    exact = (sb.table("publishers").select(cols).ilike("name", name)
+             .limit(limit).execute().data or [])
+    if exact:
+        return exact
+    return (sb.table("publishers").select(cols).ilike("name", f"%{name}%")
+            .order("name").limit(limit).execute().data or [])
+
+
 def scout_queue(limit: int) -> list[dict[str, Any]]:
     """Demand-queue matches first (chat misses), then the oldest unscouted publishers."""
     sb = _client()

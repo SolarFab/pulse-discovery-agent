@@ -224,11 +224,31 @@ def build_graph():
     return g.compile()
 
 
+class LiveTrace(list):
+    """A trace list that reports each step the moment it is recorded.
+
+    The nodes already append every decision here, so watching a run live needs no
+    changes to node logic — only a list that calls back on append.
+    """
+
+    def __init__(self, on_step):
+        super().__init__()
+        self._on_step = on_step
+
+    def append(self, step):
+        super().append(step)
+        try:
+            self._on_step(step)
+        except Exception:  # noqa: BLE001 — a display bug must not kill a scout run
+            pass
+
+
 def scout_publisher(publisher: dict[str, Any], *, dry_run: bool = False,
-                    llm_enabled: bool = True) -> ScoutState:
+                    llm_enabled: bool = True, on_step=None) -> ScoutState:
     graph = build_graph()
+    trace = LiveTrace(on_step) if on_step else []
     with observability.scout_span(publisher) as span:
-        state = graph.invoke({"publisher": publisher, "dry_run": dry_run,
+        state = graph.invoke({"publisher": publisher, "trace": trace, "dry_run": dry_run,
                               "llm_enabled": llm_enabled},
                              {"recursion_limit": 15})
         recipe = state.get("recipe")
