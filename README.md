@@ -13,7 +13,7 @@ the scout; boring code does the rest.
 371 events harvested and ingested. Full numbers in [`docs/PILOT-M3.md`](docs/PILOT-M3.md);
 what broke and why in [`docs/FINDINGS.md`](docs/FINDINGS.md).
 
-This is a standalone AI-engineering project. It powers [Pulse](https://innerloop-health.vercel.app)
+This is a standalone AI-engineering project. It powers [Pulse](https://event-map-ten.vercel.app)
 — an event-discovery app for Berlin — but runs **completely on its own** against a local sample
 database, so you can try it without any private data or credentials.
 
@@ -122,3 +122,7 @@ Working end to end and measured on real venues; scaling decision documented in
 `openspec/changes/discovery-agent/tasks.md` — most notably a ground-truth set of hand-verified
 golden venues, a cheap-vs-strong model benchmark, and a recipe-rot re-check.
 Event data comes from public sources; this is not a medical or safety-critical system.
+
+## Course brief
+This repository is the submission for the Turing College AI Engineering capstone; the
+assignment brief is preserved verbatim in [`AE.CAP_afa.md`](AE.CAP_afa.md).
