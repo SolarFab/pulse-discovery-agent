@@ -4,7 +4,7 @@ Always-on conventions for working in this repo. (Symlinked as `CLAUDE.md` for Cl
 
 ## What this repo is
 A **standalone** AI-engineering project: an agent that learns, per venue, *where* a city's events
-are published, and records a reusable `venue_sources` recipe. It powers the private Pulse product
+are published, and records a reusable typed `publisher_sources` recipe. It powers the private Pulse product
 but must remain **independently runnable** — no Pulse code, data, or secrets live here. It talks to
 Pulse only through the DB contract in `schema.sql`.
 
@@ -25,5 +25,6 @@ Pulse only through the DB contract in `schema.sql`.
 - Python ≥3.11, deps via `uv`, formatting/lint via Ruff (config in `pyproject.toml`).
 
 ## Layout
-`schema.sql` contract · `src/discovery_agent/` (config·db·tools·graph·main) · `tests/` smoke ·
+`schema.sql` contract · `src/discovery_agent/` (config·db·guards·sniffers·investigator·graph·
+harvest·recipes·observability·main) · `tests/` · `scripts/` eval · `docs/` results ·
 `openspec/` the specs · `docker-compose.yml` local demo DB.
