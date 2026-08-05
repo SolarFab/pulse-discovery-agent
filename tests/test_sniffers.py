@@ -98,6 +98,19 @@ def test_program_links_stay_on_site_and_https():
     assert links == ["https://venue.example/programm"]  # off-site + non-matching dropped
 
 
+def test_program_links_reject_lookalike_hosts():
+    """The old check was `base_host in host`, a substring test: both of these
+    passed it and got fetched as if they were the venue's own program page."""
+    html = """<html><body>
+    <a href="https://notvenue.example/programm">Programm</a>
+    <a href="https://venue.example.attacker.com/programm">Programm</a>
+    <a href="https://www.venue.example/programm">Programm</a>
+    </body></html>"""
+    assert find_program_links(html, "https://venue.example") == [
+        "https://www.venue.example/programm",  # a real subdomain still qualifies
+    ]
+
+
 def test_declared_feeds_parses_link_tags():
     feeds = declared_feeds(HOME_WITH_FEED, "https://venue.example")
     assert feeds == [("ics_feed", "https://venue.example/events.ics")]

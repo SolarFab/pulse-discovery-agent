@@ -102,6 +102,83 @@ def test_http_redirect_hop_is_followed_but_never_read(monkeypatch):
     assert seen[-1].startswith("https://")   # content read over https only
 
 
+def test_robots_fetch_does_not_follow_redirects(monkeypatch):
+    """The one hole in the wall: with follow_redirects=True, httpx chased the
+    Location header itself and no IP re-check ran, so a robots.txt answering
+    `302 -> http://169.254.169.254/` made this process issue that request."""
+    monkeypatch.setattr(guards.socket, "getaddrinfo",
+                        _fake_resolver({"venue.example": "93.184.216.34"}))
+    calls = []
+
+    class Resp:
+        status_code = 302
+        headers = {"location": "http://169.254.169.254/latest/meta-data/"}
+        text = ""
+
+    def fake_get(url, **kw):
+        calls.append((url, kw.get("follow_redirects")))
+        return Resp()
+
+    monkeypatch.setattr(guards.httpx, "get", fake_get)
+    s = FetchSession()
+    # a robots.txt we decline to chase counts as absent, i.e. allowed
+    assert s._robots_ok("https://venue.example/programm", "venue.example")
+    assert calls == [("https://venue.example/robots.txt", False)]
+
+
+def _redirecting_client(monkeypatch, target):
+    """venue.example/tickets -> `target`, everything else 200 text/html."""
+    class Resp:
+        def __init__(self, code, loc=None):
+            self.status_code = code
+            self.headers = {"location": loc} if loc else {"content-type": "text/html"}
+            self.content = b"<html>ok</html>"
+            self.text = "<html>ok</html>"
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **_kw):
+        return Resp(302, target) if url == "https://venue.example/tickets" else Resp(200)
+
+    monkeypatch.setattr(guards.httpx, "get", fake_get)
+    monkeypatch.setattr(guards.socket, "getaddrinfo", _fake_resolver({
+        "venue.example": "93.184.216.34",
+        "elsewhere.example": "93.184.216.34",
+    }))
+
+
+def test_cross_host_redirect_pays_the_full_toll(monkeypatch):
+    """Only the IP check used to run per hop, so a 30x onto another domain got in
+    past the budget, robots.txt and politeness — and, never being recorded, that
+    domain counted as fresh again on the next direct fetch."""
+    _redirecting_client(monkeypatch, "https://elsewhere.example/programm")
+    asked = []
+    s = FetchSession()
+    s._robots_ok = lambda url, host: asked.append(host) or True
+    s.guarded_fetch("https://venue.example/tickets")
+    assert asked == ["venue.example", "elsewhere.example"]      # robots asked per host
+    assert s.domains == {"venue.example", "elsewhere.example"}  # both spend budget
+    assert "elsewhere.example" in s.last_hit                    # politeness clock set
+
+
+def test_cross_host_redirect_cannot_exceed_domain_budget(monkeypatch):
+    _redirecting_client(monkeypatch, "https://elsewhere.example/programm")
+    s = FetchSession()
+    s._robots_ok = lambda url, host: True
+    s.domains = {"a.example", "b.example"}  # venue.example is the 3rd, elsewhere a 4th
+    with pytest.raises(FetchRefused, match="domain budget"):
+        s.guarded_fetch("https://venue.example/tickets")
+
+
+def test_redirect_to_robots_disallowed_path_is_refused(monkeypatch):
+    _redirecting_client(monkeypatch, "https://elsewhere.example/private")
+    s = FetchSession()
+    s._robots_ok = lambda url, host: not url.endswith("/private")
+    with pytest.raises(FetchRefused, match="robots.txt disallows"):
+        s.guarded_fetch("https://venue.example/tickets")
+
+
 def test_http_final_response_is_refused(monkeypatch):
     """A redirect chain that ENDS on http must not have its content read."""
     monkeypatch.setattr(guards.socket, "getaddrinfo",

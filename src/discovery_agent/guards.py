@@ -86,8 +86,13 @@ class FetchSession:
         if rp is None:
             rp = urllib.robotparser.RobotFileParser()
             try:
+                # NOT follow_redirects=True: httpx would then chase the Location
+                # header itself, with no IP re-check per hop — a robots.txt that
+                # answers `302 -> http://169.254.169.254/` would have this process
+                # make that request. A robots.txt we decline to chase is simply
+                # treated as absent, which the except branch below already allows.
                 resp = httpx.get(f"https://{host}/robots.txt", timeout=10,
-                                 headers={"User-Agent": UA}, follow_redirects=True)
+                                 headers={"User-Agent": UA}, follow_redirects=False)
                 rp.parse(resp.text.splitlines() if resp.status_code == 200 else [])
             except httpx.HTTPError:
                 rp.parse([])  # unreachable robots.txt -> allow (standard practice)
@@ -100,15 +105,26 @@ class FetchSession:
             time.sleep(PER_DOMAIN_DELAY_S - elapsed)
         self.last_hit[host] = time.monotonic()
 
-    def guarded_fetch(self, url: str) -> httpx.Response:
-        """Fetch under the full wall. Raises FetchRefused with a data-safe reason."""
-        host = check_url(url)
+    def _admit(self, url: str, host: str) -> None:
+        """The non-SSRF half of the wall: domain budget, robots.txt, politeness.
+
+        Runs for the entry URL AND again for any redirect target that lands on a
+        NEW host. Only the IP/scheme check used to be on the redirect path, so a
+        30x to another domain got in past all three of these — and, because the
+        host was never recorded, a later direct fetch of it counted as fresh
+        against the budget a second time.
+        """
         if host not in self.domains and len(self.domains) >= DOMAIN_BUDGET:
             raise FetchRefused(f"domain budget ({DOMAIN_BUDGET}) exhausted; refusing {host}")
         if not self._robots_ok(url, host):
             raise FetchRefused(f"robots.txt disallows {url}")
         self.domains.add(host)
         self._politeness(host)
+
+    def guarded_fetch(self, url: str) -> httpx.Response:
+        """Fetch under the full wall. Raises FetchRefused with a data-safe reason."""
+        host = check_url(url)
+        self._admit(url, host)
 
         current = url
         for _ in range(MAX_REDIRECTS + 1):
@@ -121,7 +137,15 @@ class FetchSession:
                 current = str(httpx.URL(current).join(location))
                 # Every hop is re-checked for a public IP; an http hop may be
                 # FOLLOWED but never read from (the final response must be https).
-                check_url(current, allow_http_hop=True)
+                hop_host = check_url(current, allow_http_hop=True)
+                if hop_host != host:
+                    # Landing on another domain is a fetch of that domain and owes
+                    # the same toll as a direct one.
+                    host = hop_host
+                    self._admit(current, host)
+                elif not self._robots_ok(current, host):
+                    # Same host, new path — robots.txt is a per-path rule.
+                    raise FetchRefused(f"robots.txt disallows {current}")
                 continue
             if urlparse(current).scheme != "https":
                 raise FetchRefused(f"refusing to read content over {urlparse(current).scheme!r}")

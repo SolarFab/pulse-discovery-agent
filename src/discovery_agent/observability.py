@@ -47,6 +47,9 @@ def _lf() -> Any:
             public_key=settings.langfuse_public_key,
             secret_key=settings.langfuse_secret_key,
             host=settings.langfuse_host,
+            # Best practice: separate environments so experiments and ad-hoc runs
+            # do not pollute the dashboard you judge production by.
+            environment=settings.langfuse_environment,
         )
     except Exception:  # noqa: BLE001 - never let telemetry break a run
         _client = None
@@ -123,6 +126,34 @@ def llm_generation(model: str, messages: list[dict]):
         input=messages[-2:],   # system prompt is static; last exchange is the signal
     ) as (gen, _client):
         yield gen
+
+
+@contextmanager
+def sniff_span(website: str | None = None):
+    """The deterministic ladder. Without it a sniffer-resolved run traced as a
+    single empty span — no way to see which probe found the channel, or how much
+    of the wall-clock the free path spent."""
+    with _observation("sniff_span", as_type="chain", name="sniff-channels",
+                      input={"website": website}) as (span, _c):
+        yield span
+
+
+@contextmanager
+def fetch_span(url: str, source: str):
+    """One guarded HTTP fetch. Tool calls belong under the orchestrating agent —
+    this is what makes the per-step latency legible."""
+    with _observation("fetch_span", as_type="tool", name="fetch-page",
+                      input={"url": url, "requested_by": source}) as (span, _c):
+        yield span
+
+
+@contextmanager
+def verify_span(recipe_type: str, url: str | None):
+    """The execution-verification gate — the step that rejects most candidates, so
+    the one a reviewer most needs to see."""
+    with _observation("verify_span", as_type="tool", name="verify-recipe",
+                      input={"recipe_type": recipe_type, "url": url}) as (span, _c):
+        yield span
 
 
 def flush() -> None:

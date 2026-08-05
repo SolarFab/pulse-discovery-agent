@@ -12,10 +12,12 @@ from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
+from . import observability
 from .config import settings
 from .guards import FetchRefused, FetchSession
 from .harvest import parse_embedded_json, parse_ics, parse_jsonld, parse_rss
 from .recipes import Recipe
+from .tools import same_site
 
 PROGRAM_LINK = re.compile(
     r"veranstalt|events?\b|programm|kalender|calendar|termine|whats.?on|line.?up|agenda",
@@ -45,10 +47,14 @@ def _try(session: FetchSession, url: str, seen: set[str] | None = None) -> str |
         if key in seen:
             return None
         seen.add(key)
-    try:
-        return session.guarded_fetch(url).text
-    except (FetchRefused, Exception):
-        return None
+    with observability.fetch_span(url, "sniffer") as span:
+        try:
+            text = session.guarded_fetch(url).text
+            span.update(output={"ok": True, "chars": len(text)})
+            return text
+        except (FetchRefused, Exception) as exc:
+            span.update(output={"ok": False, "reason": str(exc)[:200]})
+            return None
 
 
 def _candidate_if_parses(recipe_type: str, url: str, text: str, trace: list,
@@ -71,15 +77,16 @@ def _candidate_if_parses(recipe_type: str, url: str, text: str, trace: list,
 def find_program_links(html_text: str, base_url: str, limit: int = 3) -> list[str]:
     """Likely program-page links on a page, same-ish domain, deduped, best first."""
     soup = BeautifulSoup(html_text, "html.parser")
-    base_host = urlparse(base_url).hostname or ""
     seen, out = set(), []
     for a in soup.find_all("a", href=True):
         label = f"{a.get_text(' ', strip=True)} {a['href']}"
         if not PROGRAM_LINK.search(label):
             continue
         url = urljoin(base_url, a["href"]).split("#")[0]
-        host = urlparse(url).hostname or ""
-        if not url.startswith("https://") or base_host not in host:
+        # same_site(), not a substring test on the host: `base_host in host` also
+        # accepted notvenue.example and venue.example.attacker.com, spending the
+        # sniff budget on a stranger's site.
+        if not url.startswith("https://") or not same_site(url, base_url):
             continue
         if url not in seen:
             seen.add(url)

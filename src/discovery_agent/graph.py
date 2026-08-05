@@ -83,8 +83,11 @@ def sniff_node(state: ScoutState) -> ScoutState:
     # Collect EVERY deterministic candidate; verify pops them one at a time, so a
     # rejected free candidate falls through to the next FREE one rather than
     # straight to the paid model.
-    candidates = sniff_candidates(state["publisher"]["website"], state["session"],
-                                  state["trace"])
+    with observability.sniff_span(state["publisher"].get("website")) as sspan:
+        candidates = sniff_candidates(state["publisher"]["website"], state["session"],
+                                      state["trace"])
+        sspan.update(output={"candidates": [c.recipe_type for c in candidates],
+                             "fetches": state["session"].fetches})
     state["candidates"] = candidates
     candidate = candidates.pop(0) if candidates else None
     if candidate is None and any(t.get("unreachable") for t in state["trace"]):
@@ -130,11 +133,15 @@ def verify_node(state: ScoutState) -> ScoutState:
         state["recipe"] = candidate
         state["outcome"] = "instagram_lead" if candidate.recipe_type == "instagram_lead" else "none"
         return state
-    try:
-        events = execute_recipe(candidate, state["session"])
-    except Exception as exc:  # noqa: BLE001
-        events = []
-        state["trace"].append({"step": "verify_error", "error": f"{type(exc).__name__}: {exc}"})
+    with observability.verify_span(candidate.recipe_type,
+                                   str(candidate.url) if candidate.url else None) as vspan:
+        try:
+            events = execute_recipe(candidate, state["session"])
+        except Exception as exc:  # noqa: BLE001
+            events = []
+            state["trace"].append({"step": "verify_error",
+                                   "error": f"{type(exc).__name__}: {exc}"})
+            vspan.update(level="ERROR", status_message=str(exc)[:200])
     future = future_events(events, _now())
     # Same list-shaped bar as the sniffer: a page-embedded recipe that yields one
     # event is a detail page, not a program.

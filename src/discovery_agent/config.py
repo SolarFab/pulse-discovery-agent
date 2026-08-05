@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"
+    # Keeps ad-hoc `watch` runs and experiments out of the production dashboard.
+    # The scheduled workflow sets this to "production"; everything else is dev.
+    langfuse_environment: str = "development"
 
 
 settings = Settings()

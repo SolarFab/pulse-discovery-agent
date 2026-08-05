@@ -18,6 +18,7 @@ from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
+from . import observability
 from .guards import FetchRefused, FetchSession
 
 # We deliberately parse whatever a URL returns with one lenient parser: a page that
@@ -37,12 +38,16 @@ def fetch_page(session: FetchSession, url: str) -> str:
     """
     if not _HAS_SCHEME.match(url):
         url = "https://" + url
-    try:
-        resp = session.guarded_fetch(url)
-    except FetchRefused as exc:
-        return f"[fetch_refused] {exc}"
-    except Exception as exc:  # noqa: BLE001 — the loop must never die on a bad page
-        return f"[fetch_error] {type(exc).__name__}: {exc}"
+    with observability.fetch_span(url, "model") as span:
+        try:
+            resp = session.guarded_fetch(url)
+            span.update(output={"ok": True, "status": resp.status_code})
+        except FetchRefused as exc:
+            span.update(output={"ok": False, "reason": str(exc)[:200]})
+            return f"[fetch_refused] {exc}"
+        except Exception as exc:  # noqa: BLE001 — the loop must never die on a bad page
+            span.update(output={"ok": False, "reason": str(exc)[:200]})
+            return f"[fetch_error] {type(exc).__name__}: {exc}"
 
     body = resp.text
     # Structured content is a strong signal — tell the model instead of hiding it.
@@ -93,9 +98,25 @@ def fetch_page(session: FetchSession, url: str) -> str:
     return "\n\n".join(parts)
 
 
-_DATEISH = re.compile(r"\b\d{1,2}[./]\d{1,2}[./ ]|\b\d{4}-\d{2}-\d{2}|januar|februar|märz|april"
-                      r"|juni|juli|august|september|oktober|november|dezember"
-                      r"|mo|di|mi|do|fr|sa|so\b", re.IGNORECASE)
+# This drives the `dateish` score below, i.e. which repeating container the model is
+# shown as an html_selector candidate — so both directions of error hurt. Two bugs
+# lived here: "mai" and the English month names were missing (a real programme whose
+# only signal was "Mai 15" scored ZERO and got flagged unusable), and in
+# `mo|di|…|so\b` an alternation binds `\b` to the LAST branch only, so "moment",
+# "Doors", "friendly" and "sample" all counted as dates. Every word alternative is
+# anchored on both sides now: unanchored, "mai"/"may" would fire on "main" and
+# "e-mail" — the exact noise the score exists to filter out.
+_DATEISH = re.compile(
+    r"\b\d{1,2}[./]\d{1,2}[./ ]"
+    r"|\b\d{4}-\d{2}-\d{2}"
+    r"|\b(?:januar|january|februar|february|märz|march|april|mai|may"
+    r"|juni|june|juli|july|august|september|oktober|october"
+    r"|november|dezember|december)\b"
+    r"|\b(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag"
+    r"|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b"
+    r"|\b(?:mo|di|mi|do|fr|sa|so)\b",
+    re.IGNORECASE,
+)
 
 
 def _skeleton(el, limit: int = 6) -> str:
