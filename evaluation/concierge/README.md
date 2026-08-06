@@ -17,6 +17,35 @@ experiments evaluate.
 | `tools.test.ts` | The unit tests, including the ones pinning the sparse-genre incident |
 | `match_events.sql` | **The retrieval itself**: vector similarity ranked *inside* strict SQL filters |
 | `match_events_title_boost.sql` | The revision that added a lexical title boost — see finding F3 |
+| `instrumentation.ts`, `trace.ts`, `generations.ts` | Observability — see below |
+
+## Observability, and a documentation trap
+
+A production turn was taking ~19s against a 2s target, and the trace showed a single
+observation: total time, nothing inside it. Fixing that took three failed attempts and
+is worth recording, because the cause was not in our code.
+
+**Vercel AI SDK v7 emits no OpenTelemetry spans at all.** `@opentelemetry` appears zero
+times in `ai@7.0.42` — v7 replaced the OTEL integration with an internal telemetry
+dispatcher. So `experimental_telemetry: { isEnabled: true }` produces nothing regardless
+of how the tracer is wired. Langfuse's own Vercel AI SDK integration guide still
+describes the v5 behaviour, so following the official documentation exactly still fails.
+The answer came from reading the SDK's shipped bundle, not the docs.
+
+- `trace.ts` — spans for the steps inside a tool call. `search_events` makes two network
+  round-trips (embed, then vector search); as one opaque box, "the search was slow" is
+  not an actionable finding.
+- `generations.ts` — one Langfuse generation per model call, built from the `steps`
+  array `onFinish` returns: model, tokens, finish reason, and `completionStartTime`
+  (time-to-first-token). Per-step durations come from the SDK's **measured**
+  `effectiveOutputTokensPerSecond`; an earlier version apportioned elapsed time by
+  output tokens, which made every step report an identical tokens/sec — a figure that
+  was an artifact of the split rather than a measurement.
+
+What it bought: a 19.5s turn resolves to **load-taxonomy 0.48s · model-call-1 2.2s ·
+embed-query 0.20s · match-events 0.75s · model-call-2 15.9s**. Retrieval is ~1s; the
+answer generation is 82% of the turn, at 549 output tokens and ~37 tokens/sec. That
+turns "the chat is slow" into a specific, addressable decision about output length.
 
 ## How the RAG loop actually works
 

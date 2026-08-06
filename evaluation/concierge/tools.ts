@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { supabaseAnon } from "./anonClient";
 import { embedQuery } from "./embedQuery";
+import { step } from "./trace";
 
 // The concierge's two read tools (semantic-search spec). Every param optional;
 // filters constrain (strict SQL), `query` ranks (vector-only per Experiment 2).
@@ -26,6 +27,8 @@ export type ToolLog = {
   args: Record<string, unknown>;
   results: number;
   ms: number;
+  embed_ms?: number;   // time in the embedding API
+  match_ms?: number;   // time in the vector query (both round-trips if relaxed)
   degraded?: boolean;
   relaxed?: boolean;
 }[];
@@ -87,8 +90,15 @@ export function buildTools(opts: {
 
         let qvec: string | null = null;
         let degraded = false;
+        let embedMs = 0;
         if (args.query) {
-          qvec = await embedQuery(args.query);
+          // Two network round-trips hide inside this tool call. Timed separately,
+          // because "the search was slow" is not an actionable finding — "the
+          // embedding API took 3s" or "the vector query took 3s" is.
+          const r = await step("embed-query", { type: "embedding", input: { chars: args.query.length } },
+            () => embedQuery(args.query as string));
+          qvec = r.value;
+          embedMs = r.ms;
           degraded = qvec === null; // embedding down -> filter-only, never broken
         }
         const runMatch = (category: string | null, subcategory: string | null) =>
@@ -112,7 +122,13 @@ export function buildTools(opts: {
             p_limit: args.limit ?? 10,
           });
 
-        const first = await runMatch(args.category ?? null, args.subcategory ?? null);
+        const firstStep = await step("match-events",
+          { type: "retriever", input: { filtered: true, has_vector: qvec !== null,
+                                        category: args.category ?? null,
+                                        subcategory: args.subcategory ?? null } },
+          () => runMatch(args.category ?? null, args.subcategory ?? null));
+        const first = firstStep.value;
+        let matchMs = firstStep.ms;
         const error = first.error;
         let data = first.data;
 
@@ -129,7 +145,11 @@ export function buildTools(opts: {
           args.query &&
           (args.category || args.subcategory)
         ) {
-          const retry = await runMatch(null, null);
+          const retryStep = await step("match-events-relaxed",
+            { type: "retriever", input: { filtered: false, reason: "empty under genre filter" } },
+            () => runMatch(null, null));
+          matchMs += retryStep.ms;   // the relax costs a SECOND round-trip — show it
+          const retry = retryStep.value;
           if (!retry.error && (retry.data?.length ?? 0) > 0) {
             data = retry.data;
             relaxed = true;
@@ -140,6 +160,8 @@ export function buildTools(opts: {
           tool: "search_events",
           args: { ...args, query: args.query?.slice(0, 60) },
           results: data?.length ?? 0,
+          embed_ms: embedMs,
+          match_ms: matchMs,
           ms: Date.now() - t0,
           ...(degraded ? { degraded } : {}),
           ...(relaxed ? { relaxed } : {}),
