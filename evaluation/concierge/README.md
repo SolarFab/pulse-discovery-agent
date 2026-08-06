@@ -32,10 +32,43 @@ user question
   → answer, grounded, each event cited by its exact id
 ```
 
-The split between *filter* and *rank* is the central design decision. A date, a price cap or
-a family-friendly requirement is a constraint, not a preference — expressing those as vector
-similarity produces confident, wrong answers. So SQL narrows, and the embedding only orders
-what survives.
+The split between *filter* and *rank* is the central design decision — and the place this
+system has been most wrong.
+
+**Where strict filtering is right.** A date, a price cap, a radius: these are facts carried
+in the source data. A 20:00 Sunday gig either is or is not inside the window. Expressing a
+constraint as vector similarity produces confident wrong answers, so SQL decides.
+
+**Where it did real damage.** `category` and `subcategory` are *not* facts — they are labels
+an LLM assigned at ingest, and a later kNN audit measured a **6.2% miscategorization rate**
+over 1,000 events. Filtering strictly on an inferred label turns a labeling error into total
+invisibility: the row is removed before ranking, so the embedding cannot rescue it.
+
+That is not hypothetical. A user asked why the concierge denied a comedy show that plainly
+existed. The categorizer had filed a Comedy-tagged stand-up night under `culture`;
+`subcategory=comedy` was **99.5% empty** across the database; the model dutifully searched
+`subcategory=comedy` and got nothing. Four other defects compounded it — the full autopsy is
+finding F1–F6 in `../reports/CONCIERGE-FINDINGS.md`.
+
+The distinction that matters is not filter-versus-rank. It is **whether the field is observed
+or inferred**:
+
+| field | origin | filtering |
+|---|---|---|
+| `date_from/to`, `max_price_cents`, `lat/lng/radius` | extracted from the source | strict — correct |
+| `venue`, `neighborhood` | extracted, fuzzy-matched | strict — acceptable |
+| `category`, `subcategory`, facets | **LLM-inferred, ~6% wrong** | strict — *dangerous* |
+
+Mitigations shipped after that incident: a lexical title boost so exact-name and keyword
+matches surface even when labels are wrong (F3), a deterministic pre-pass that beats the LLM
+on unambiguous signals like "stand-up" (F4), 195 events refiled, and the kNN audit itself.
+The prompt also marks soft preferences explicitly — "gern draußen … do NOT hard-filter".
+
+**The honest status: those are patches, not the fix.** Genre is still a hard gate whenever the
+model chooses to pass one, and a 6% label error rate is still a 6% invisibility rate for
+those queries. The correct design is probably to demote inferred labels to a ranking boost
+and let the embedding carry genre — which is measurable with the golden set already in this
+repo, and has not been measured yet.
 
 ## Things worth noticing, and why they are there
 
