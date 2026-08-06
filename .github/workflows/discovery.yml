@@ -44,13 +44,29 @@ jobs:
       LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
       LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
     steps:
+      # Both loops need a database. Without one, skip with a notice instead of a
+      # nightly red X: an unconfigured optional job is not a failure, and a mirror
+      # of this repo (the course submission) will never have these secrets.
+      - name: Check configuration
+        id: cfg
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No SUPABASE_URL secret — discovery is not configured here, skipping."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v4
+        if: steps.cfg.outputs.configured == 'true'
       - uses: actions/setup-python@v5
+        if: steps.cfg.outputs.configured == 'true'
         with:
           python-version: "3.11"
           cache: "pip"
       - run: pip install -e .
+        if: steps.cfg.outputs.configured == 'true'
       - name: Harvest known recipes
+        if: steps.cfg.outputs.configured == 'true'
         run: discovery-agent harvest
 
   scout:
@@ -66,17 +82,34 @@ jobs:
       LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
       LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
     steps:
+      # Scouting additionally SPENDS MONEY, so it refuses to start without an LLM
+      # key rather than burning a run to discover that halfway through.
+      - name: Check configuration
+        id: cfg
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ] || [ -z "${{ secrets.OPENROUTER_API_KEY }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Scouting needs SUPABASE_URL and OPENROUTER_API_KEY — skipping."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v4
+        if: steps.cfg.outputs.configured == 'true'
       - uses: actions/setup-python@v5
+        if: steps.cfg.outputs.configured == 'true'
         with:
           python-version: "3.11"
           cache: "pip"
       - run: pip install -e .
+        if: steps.cfg.outputs.configured == 'true'
       - name: Scout unscouted publishers
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          LANGFUSE_ENVIRONMENT: production   # keep ad-hoc local runs out of this dashboard
         run: |
           discovery-agent scout \
             --limit "${{ inputs.limit || 25 }}" \
             ${{ (inputs.mix == false) && ' ' || '--mix' }}
       - name: Pilot report
-        if: always()
+        if: steps.cfg.outputs.configured == 'true'
         run: python scripts/pilot_report.py
