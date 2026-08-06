@@ -1,0 +1,88 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pulse — prompt benchmark: accuracy vs cost</title>
+<style>
+ .viz-root { color-scheme: light; --surface-1:#ffffff; --text-primary:#111;
+   --text-secondary:#555; --grid:#00000014; font:14px/1.5 system-ui,sans-serif;
+   max-width:940px; margin:2rem auto; padding:0 1rem; color:var(--text-primary);
+   background:var(--surface-1) }
+ .viz-root .m-claude-haiku-4-5 { --c: #2a78d6 }
+ .viz-root .m-gpt-4o-mini { --c: #008300 }
+ .viz-root .m-gemini-2-5-flash { --c: #e87ba4 }
+ .viz-root .m-deepseek-v4-flash { --c: #eda100 }
+ .viz-root .m-deepseek-v4-pro { --c: #1baf7a }
+ .viz-root .m-minimax-m2-7 { --c: #eb6834 }
+ .viz-root .m-glm-5-2 { --c: #4a3aa7 }
+ .viz-root .m-gemma-4-31b-it { --c: #e34948 }
+ .viz-root .m-gpt-4-1-nano { --c: #6b6b6b }
+ @media (prefers-color-scheme: dark) {
+   :root:where(:not([data-theme="light"])) .viz-root { color-scheme:dark;
+     --surface-1:#1a1a19; --text-primary:#fff; --text-secondary:#c3c2b7; --grid:#ffffff1e }
+    .viz-root .m-claude-haiku-4-5 { --c: #3987e5 }
+    .viz-root .m-gpt-4o-mini { --c: #008300 }
+    .viz-root .m-gemini-2-5-flash { --c: #d55181 }
+    .viz-root .m-deepseek-v4-flash { --c: #c98500 }
+    .viz-root .m-deepseek-v4-pro { --c: #199e70 }
+    .viz-root .m-minimax-m2-7 { --c: #d95926 }
+    .viz-root .m-glm-5-2 { --c: #9085e9 }
+    .viz-root .m-gemma-4-31b-it { --c: #e66767 }
+    .viz-root .m-gpt-4-1-nano { --c: #9a9a94 }
+ }
+ :root[data-theme="dark"] .viz-root { color-scheme:dark; --surface-1:#1a1a19;
+   --text-primary:#fff; --text-secondary:#c3c2b7; --grid:#ffffff1e }
+ body { margin:0; background:var(--surface-1,#fff) }
+ h1 { font-size:1.25rem; margin-bottom:.2rem }
+ .sub { color:var(--text-secondary); margin-top:0 }
+ svg.chart { width:100%; height:auto; display:block }
+ .grid { stroke:var(--grid); stroke-width:1 }
+ .tick, .axis { fill:var(--text-secondary); font-size:12px }
+ .pt * { fill:var(--c); stroke:var(--surface-1); stroke-width:2 }
+ .pt { cursor:pointer }
+ .ptlabel { fill:var(--text-secondary); font-size:11px }
+ .pareto { fill:none; stroke:var(--text-secondary); stroke-width:1; stroke-dasharray:3 4; opacity:.6 }
+ .legendrow { margin:.3rem 0 }
+ .legendrow b { color:var(--text-secondary); font-weight:600; font-size:.85em; margin-right:.6rem }
+ .lg { display:inline-flex; align-items:center; gap:.3rem; margin-right:.9rem;
+       color:var(--text-secondary); font-size:.88em }
+ .lg svg * { fill:var(--c) }
+ .lg.shape svg * { fill:var(--text-secondary) }
+ #tip { position:fixed; pointer-events:none; background:var(--text-primary);
+   color:var(--surface-1); padding:.35rem .6rem; border-radius:6px; font-size:.85em;
+   opacity:0; transition:opacity .12s; max-width:360px; z-index:9 }
+ table { border-collapse:collapse; margin-top:1.5rem; width:100% }
+ th,td { border:1px solid var(--grid); padding:.35rem .6rem; font-size:.9em; text-align:left }
+ th { color:var(--text-secondary) }
+</style></head><body><div class="viz-root">
+<h1>Tool-call accuracy vs. measured cost per turn</h1>
+<p class="sub">Experiment 3 stage 1 · 36 technique × model cells · golden set v1 (13 chat
+queries, deterministic asserts, temp 0) · cost = OpenRouter usage accounting · dashed = Pareto
+frontier · up &amp; left is better · gray = cost anchor</p>
+<div class="legendrow"><b>SHAPE = technique</b><span class="lg shape"><svg width="16" height="16" viewBox="-8 -8 16 16"><circle cx="0.0" cy="0.0" r="5"/></svg>zero-shot</span><span class="lg shape"><svg width="16" height="16" viewBox="-8 -8 16 16"><rect x="-5.0" y="-5.0" width="10" height="10" rx="1.5"/></svg>prod-v1</span><span class="lg shape"><svg width="16" height="16" viewBox="-8 -8 16 16"><path d="M0.0 -6.0 L6.0 0.0 L0.0 6.0 L-6.0 0.0 Z"/></svg>few-shot</span><span class="lg shape"><svg width="16" height="16" viewBox="-8 -8 16 16"><path d="M0.0 -6.0 L6.0 5.0 L-6.0 5.0 Z"/></svg>clarify-first</span></div>
+<div class="legendrow"><b>COLOR = model</b><span class="lg m-claude-haiku-4-5"><svg width="14" height="14" viewBox="-7 -7 14 14"><circle r="5"/></svg>claude-haiku-4.5</span><span class="lg m-gpt-4o-mini"><svg width="14" height="14" viewBox="-7 -7 14 14"><circle r="5"/></svg>gpt-4o-mini</span><span class="lg m-gemini-2-5-flash"><svg width="14" height="14" viewBox="-7 -7 14 14"><circle r="5"/></svg>gemini-2.5-flash</span><span class="lg m-deepseek-v4-flash"><svg width="14" height="14" viewBox="-7 -7 14 14"><circle r="5"/></svg>deepseek-v4-flash</span><span class="lg m-deepseek-v4-pro"><svg width="14" height="14" viewBox="-7 -7 14 14"><circle r="5"/></svg>deepseek-v4-pro</span><span class="lg m-minimax-m2-7"><svg width="14" height="14" viewBox="-7 -7 14 14"><circle r="5"/></svg>minimax-m2.7</span><span class="lg m-glm-5-2"><svg width="14" height="14" viewBox="-7 -7 14 14"><circle r="5"/></svg>glm-5.2</span><span class="lg m-gemma-4-31b-it"><svg width="14" height="14" viewBox="-7 -7 14 14"><circle r="5"/></svg>gemma-4-31b</span><span class="lg m-gpt-4-1-nano"><svg width="14" height="14" viewBox="-7 -7 14 14"><circle r="5"/></svg>gpt-4.1-nano</span></div>
+<svg class="chart" viewBox="0 0 880 540" role="img"
+     aria-label="Scatter plot of tool-call accuracy against cost per turn">
+  <line x1="70.0" y1="20" x2="70.0" y2="448" class="grid"/><line x1="194.1" y1="20" x2="194.1" y2="448" class="grid"/><line x1="330.0" y1="20" x2="330.0" y2="448" class="grid"/><line x1="454.1" y1="20" x2="454.1" y2="448" class="grid"/><line x1="590.0" y1="20" x2="590.0" y2="448" class="grid"/><line x1="714.1" y1="20" x2="714.1" y2="448" class="grid"/><line x1="850.0" y1="20" x2="850.0" y2="448" class="grid"/><line x1="70" y1="341.0" x2="850" y2="341.0" class="grid"/><line x1="70" y1="234.0" x2="850" y2="234.0" class="grid"/><line x1="70" y1="127.0" x2="850" y2="127.0" class="grid"/><line x1="70" y1="20.0" x2="850" y2="20.0" class="grid"/>
+  <polyline class="pareto" points="268.5,85.9 353.4,53.0"/>
+  <g class="pt m-claude-haiku-4-5" data-tip="zero-shot × claude-haiku-4.5 — 10/13 (77%), $0.00167/turn, 2149ms"><circle cx="648.1" cy="118.9" r="6"/></g><g class="pt m-gpt-4o-mini" data-tip="zero-shot × gpt-4o-mini — 10/13 (77%), $0.00007/turn, 1211ms"><circle cx="284.8" cy="118.9" r="6"/></g><g class="pt m-gemini-2-5-flash" data-tip="zero-shot × gemini-2.5-flash — 10/13 (77%), $0.00015/turn, 743ms"><circle cx="375.0" cy="118.9" r="6"/></g><g class="pt m-deepseek-v4-flash" data-tip="zero-shot × deepseek-v4-flash — 9/13 (69%), $0.00009/turn, 6283ms"><circle cx="314.3" cy="151.8" r="6"/></g><g class="pt m-deepseek-v4-pro" data-tip="zero-shot × deepseek-v4-pro — 10/13 (77%), $0.00145/turn, 5425ms"><circle cx="632.0" cy="118.9" r="6"/></g><g class="pt m-minimax-m2-7" data-tip="zero-shot × minimax-m2.7 — 11/13 (85%), $0.00033/turn, 4189ms"><circle cx="465.2" cy="85.9" r="6"/></g><g class="pt m-glm-5-2" data-tip="zero-shot × glm-5.2 — 10/13 (77%), $0.00083/turn, 3539ms"><circle cx="568.6" cy="118.9" r="6"/></g><g class="pt m-gemma-4-31b-it" data-tip="zero-shot × gemma-4-31b — 11/13 (85%), $0.00006/turn, 1741ms"><circle cx="268.5" cy="85.9" r="6"/></g><g class="pt m-gpt-4-1-nano" data-tip="zero-shot × gpt-4.1-nano — 11/13 (85%), $0.00007/turn, 2168ms"><circle cx="296.0" cy="85.9" r="6"/></g><g class="pt m-claude-haiku-4-5" data-tip="prod-v1 × claude-haiku-4.5 — 10/13 (77%), $0.00206/turn, 2081ms"><rect x="665.4" y="112.9" width="12" height="12" rx="1.5"/></g><g class="pt m-gpt-4o-mini" data-tip="prod-v1 × gpt-4o-mini — 9/13 (69%), $0.00012/turn, 1153ms"><rect x="341.7" y="145.8" width="12" height="12" rx="1.5"/></g><g class="pt m-gemini-2-5-flash" data-tip="prod-v1 × gemini-2.5-flash — 12/13 (92%), $0.00027/turn, 841ms"><rect x="436.6" y="47.0" width="12" height="12" rx="1.5"/></g><g class="pt m-deepseek-v4-flash" data-tip="prod-v1 × deepseek-v4-flash — 9/13 (69%), $0.00008/turn, 6693ms"><rect x="295.9" y="145.8" width="12" height="12" rx="1.5"/></g><g class="pt m-deepseek-v4-pro" data-tip="prod-v1 × deepseek-v4-pro — 10/13 (77%), $0.00214/turn, 13667ms"><rect x="669.9" y="112.9" width="12" height="12" rx="1.5"/></g><g class="pt m-minimax-m2-7" data-tip="prod-v1 × minimax-m2.7 — 9/13 (69%), $0.00037/turn, 5570ms"><rect x="472.0" y="145.8" width="12" height="12" rx="1.5"/></g><g class="pt m-glm-5-2" data-tip="prod-v1 × glm-5.2 — 11/13 (85%), $0.00088/turn, 3617ms"><rect x="569.7" y="79.9" width="12" height="12" rx="1.5"/></g><g class="pt m-gemma-4-31b-it" data-tip="prod-v1 × gemma-4-31b — 11/13 (85%), $0.00009/turn, 1743ms"><rect x="315.8" y="79.9" width="12" height="12" rx="1.5"/></g><g class="pt m-gpt-4-1-nano" data-tip="prod-v1 × gpt-4.1-nano — 12/13 (92%), $0.00013/turn, 2881ms"><rect x="350.1" y="47.0" width="12" height="12" rx="1.5"/></g><g class="pt m-claude-haiku-4-5" data-tip="few-shot × claude-haiku-4.5 — 12/13 (92%), $0.00224/turn, 2045ms"><path d="M681.0 46.0 L688.0 53.0 L681.0 60.0 L674.0 53.0 Z"/></g><g class="pt m-gpt-4o-mini" data-tip="few-shot × gpt-4o-mini — 12/13 (92%), $0.00016/turn, 1431ms"><path d="M382.4 46.0 L389.4 53.0 L382.4 60.0 L375.4 53.0 Z"/></g><g class="pt m-gemini-2-5-flash" data-tip="few-shot × gemini-2.5-flash — 8/13 (62%), $0.00038/turn, 963ms"><path d="M481.3 177.8 L488.3 184.8 L481.3 191.8 L474.3 184.8 Z"/></g><g class="pt m-deepseek-v4-flash" data-tip="few-shot × deepseek-v4-flash — 11/13 (85%), $0.00011/turn, 6924ms"><path d="M341.8 78.9 L348.8 85.9 L341.8 92.9 L334.8 85.9 Z"/></g><g class="pt m-deepseek-v4-pro" data-tip="few-shot × deepseek-v4-pro — 12/13 (92%), $0.00150/turn, 8298ms"><path d="M636.0 46.0 L643.0 53.0 L636.0 60.0 L629.0 53.0 Z"/></g><g class="pt m-minimax-m2-7" data-tip="few-shot × minimax-m2.7 — 12/13 (92%), $0.00042/turn, 6676ms"><path d="M491.5 46.0 L498.5 53.0 L491.5 60.0 L484.5 53.0 Z"/></g><g class="pt m-glm-5-2" data-tip="few-shot × glm-5.2 — 11/13 (85%), $0.00088/turn, 3380ms"><path d="M575.9 78.9 L582.9 85.9 L575.9 92.9 L568.9 85.9 Z"/></g><g class="pt m-gemma-4-31b-it" data-tip="few-shot × gemma-4-31b — 12/13 (92%), $0.00012/turn, 1800ms"><path d="M353.4 46.0 L360.4 53.0 L353.4 60.0 L346.4 53.0 Z"/></g><g class="pt m-gpt-4-1-nano" data-tip="few-shot × gpt-4.1-nano — 12/13 (92%), $0.00015/turn, 2742ms"><path d="M375.8 46.0 L382.8 53.0 L375.8 60.0 L368.8 53.0 Z"/></g><g class="pt m-claude-haiku-4-5" data-tip="clarify-first × claude-haiku-4.5 — 4/13 (31%), $0.00193/turn, 2441ms"><path d="M664.0 309.2 L671.0 322.2 L657.0 322.2 Z"/></g><g class="pt m-gpt-4o-mini" data-tip="clarify-first × gpt-4o-mini — 6/13 (46%), $0.00011/turn, 1082ms"><path d="M337.6 243.3 L344.6 256.3 L330.6 256.3 Z"/></g><g class="pt m-gemini-2-5-flash" data-tip="clarify-first × gemini-2.5-flash — 6/13 (46%), $0.00025/turn, 998ms"><path d="M433.9 243.3 L440.9 256.3 L426.9 256.3 Z"/></g><g class="pt m-deepseek-v4-flash" data-tip="clarify-first × deepseek-v4-flash — 9/13 (69%), $0.00008/turn, 5566ms"><path d="M303.4 144.8 L310.4 157.8 L296.4 157.8 Z"/></g><g class="pt m-deepseek-v4-pro" data-tip="clarify-first × deepseek-v4-pro — 9/13 (69%), $0.00061/turn, 8239ms"><path d="M533.8 144.8 L540.8 157.8 L526.8 157.8 Z"/></g><g class="pt m-minimax-m2-7" data-tip="clarify-first × minimax-m2.7 — 9/13 (69%), $0.00045/turn, 7028ms"><path d="M498.8 144.8 L505.8 157.8 L491.8 157.8 Z"/></g><g class="pt m-glm-5-2" data-tip="clarify-first × glm-5.2 — 9/13 (69%), $0.00092/turn, 3455ms"><path d="M580.7 144.8 L587.7 157.8 L573.7 157.8 Z"/></g><g class="pt m-gemma-4-31b-it" data-tip="clarify-first × gemma-4-31b — 5/13 (38%), $0.00010/turn, 2716ms"><path d="M326.6 276.2 L333.6 289.2 L319.6 289.2 Z"/></g><g class="pt m-gpt-4-1-nano" data-tip="clarify-first × gpt-4.1-nano — 4/13 (31%), $0.00008/turn, 1408ms"><path d="M303.4 309.2 L310.4 322.2 L296.4 322.2 Z"/></g>
+  <text x="278.5" y="77.9" class="ptlabel">gemma-4-31b</text><text x="363.4" y="45.0" class="ptlabel">gemma-4-31b</text>
+  <text x="70.0" y="466" class="tick" text-anchor="middle">$0.00001</text><text x="194.1" y="466" class="tick" text-anchor="middle">$0.00003</text><text x="330.0" y="466" class="tick" text-anchor="middle">$0.0001</text><text x="454.1" y="466" class="tick" text-anchor="middle">$0.0003</text><text x="590.0" y="466" class="tick" text-anchor="middle">$0.001</text><text x="714.1" y="466" class="tick" text-anchor="middle">$0.003</text><text x="850.0" y="466" class="tick" text-anchor="middle">$0.01</text><text x="62" y="345.0" class="tick" text-anchor="end">25%</text><text x="62" y="238.0" class="tick" text-anchor="end">50%</text><text x="62" y="131.0" class="tick" text-anchor="end">75%</text><text x="62" y="24.0" class="tick" text-anchor="end">100%</text>
+  <text x="460.0" y="492" class="axis" text-anchor="middle">cost per turn (USD, log scale)</text>
+  <text x="18" y="234.0" class="axis" text-anchor="middle"
+        transform="rotate(-90 18 234.0)">tool-call accuracy</text>
+</svg>
+<div id="tip"></div>
+<table><tr><th>technique</th><th>model</th><th>accuracy</th><th>$/turn</th><th>ms/turn</th></tr><tr><td>few-shot</td><td>gemma-4-31b</td><td>12/13 (92%)</td><td>$0.00012</td><td>1800</td></tr><tr><td>prod-v1</td><td>gpt-4.1-nano</td><td>12/13 (92%)</td><td>$0.00013</td><td>2881</td></tr><tr><td>few-shot</td><td>gpt-4.1-nano</td><td>12/13 (92%)</td><td>$0.00015</td><td>2742</td></tr><tr><td>few-shot</td><td>gpt-4o-mini</td><td>12/13 (92%)</td><td>$0.00016</td><td>1431</td></tr><tr><td>prod-v1</td><td>gemini-2.5-flash</td><td>12/13 (92%)</td><td>$0.00027</td><td>841</td></tr><tr><td>few-shot</td><td>minimax-m2.7</td><td>12/13 (92%)</td><td>$0.00042</td><td>6676</td></tr><tr><td>few-shot</td><td>deepseek-v4-pro</td><td>12/13 (92%)</td><td>$0.00150</td><td>8298</td></tr><tr><td>few-shot</td><td>claude-haiku-4.5</td><td>12/13 (92%)</td><td>$0.00224</td><td>2045</td></tr><tr><td>zero-shot</td><td>gemma-4-31b</td><td>11/13 (85%)</td><td>$0.00006</td><td>1741</td></tr><tr><td>zero-shot</td><td>gpt-4.1-nano</td><td>11/13 (85%)</td><td>$0.00007</td><td>2168</td></tr><tr><td>prod-v1</td><td>gemma-4-31b</td><td>11/13 (85%)</td><td>$0.00009</td><td>1743</td></tr><tr><td>few-shot</td><td>deepseek-v4-flash</td><td>11/13 (85%)</td><td>$0.00011</td><td>6924</td></tr><tr><td>zero-shot</td><td>minimax-m2.7</td><td>11/13 (85%)</td><td>$0.00033</td><td>4189</td></tr><tr><td>prod-v1</td><td>glm-5.2</td><td>11/13 (85%)</td><td>$0.00088</td><td>3617</td></tr><tr><td>few-shot</td><td>glm-5.2</td><td>11/13 (85%)</td><td>$0.00088</td><td>3380</td></tr><tr><td>zero-shot</td><td>gpt-4o-mini</td><td>10/13 (77%)</td><td>$0.00007</td><td>1211</td></tr><tr><td>zero-shot</td><td>gemini-2.5-flash</td><td>10/13 (77%)</td><td>$0.00015</td><td>743</td></tr><tr><td>zero-shot</td><td>glm-5.2</td><td>10/13 (77%)</td><td>$0.00083</td><td>3539</td></tr><tr><td>zero-shot</td><td>deepseek-v4-pro</td><td>10/13 (77%)</td><td>$0.00145</td><td>5425</td></tr><tr><td>zero-shot</td><td>claude-haiku-4.5</td><td>10/13 (77%)</td><td>$0.00167</td><td>2149</td></tr><tr><td>prod-v1</td><td>claude-haiku-4.5</td><td>10/13 (77%)</td><td>$0.00206</td><td>2081</td></tr><tr><td>prod-v1</td><td>deepseek-v4-pro</td><td>10/13 (77%)</td><td>$0.00214</td><td>13667</td></tr><tr><td>prod-v1</td><td>deepseek-v4-flash</td><td>9/13 (69%)</td><td>$0.00008</td><td>6693</td></tr><tr><td>clarify-first</td><td>deepseek-v4-flash</td><td>9/13 (69%)</td><td>$0.00008</td><td>5566</td></tr><tr><td>zero-shot</td><td>deepseek-v4-flash</td><td>9/13 (69%)</td><td>$0.00009</td><td>6283</td></tr><tr><td>prod-v1</td><td>gpt-4o-mini</td><td>9/13 (69%)</td><td>$0.00012</td><td>1153</td></tr><tr><td>prod-v1</td><td>minimax-m2.7</td><td>9/13 (69%)</td><td>$0.00037</td><td>5570</td></tr><tr><td>clarify-first</td><td>minimax-m2.7</td><td>9/13 (69%)</td><td>$0.00045</td><td>7028</td></tr><tr><td>clarify-first</td><td>deepseek-v4-pro</td><td>9/13 (69%)</td><td>$0.00061</td><td>8239</td></tr><tr><td>clarify-first</td><td>glm-5.2</td><td>9/13 (69%)</td><td>$0.00092</td><td>3455</td></tr><tr><td>few-shot</td><td>gemini-2.5-flash</td><td>8/13 (62%)</td><td>$0.00038</td><td>963</td></tr><tr><td>clarify-first</td><td>gpt-4o-mini</td><td>6/13 (46%)</td><td>$0.00011</td><td>1082</td></tr><tr><td>clarify-first</td><td>gemini-2.5-flash</td><td>6/13 (46%)</td><td>$0.00025</td><td>998</td></tr><tr><td>clarify-first</td><td>gemma-4-31b</td><td>5/13 (38%)</td><td>$0.00010</td><td>2716</td></tr><tr><td>clarify-first</td><td>gpt-4.1-nano</td><td>4/13 (31%)</td><td>$0.00008</td><td>1408</td></tr><tr><td>clarify-first</td><td>claude-haiku-4.5</td><td>4/13 (31%)</td><td>$0.00193</td><td>2441</td></tr></table>
+<p class="sub">Run: 3-prompt-techniques-stage1 · models: claude-haiku-4.5, gpt-4o-mini, gemini-2.5-flash, deepseek-v4-flash, deepseek-v4-pro, minimax-m2.7, glm-5.2, gemma-4-31b, gpt-4.1-nano</p>
+<script>
+const tip = document.getElementById('tip');
+document.querySelectorAll('.pt').forEach(p => {
+  p.addEventListener('mousemove', e => {
+    tip.textContent = p.dataset.tip;
+    tip.style.left = (e.clientX + 14) + 'px';
+    tip.style.top = (e.clientY - 10) + 'px';
+    tip.style.opacity = 1;
+  });
+  p.addEventListener('mouseleave', () => tip.style.opacity = 0);
+});
+</script>
+</div></body></html>

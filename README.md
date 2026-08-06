@@ -127,9 +127,26 @@ numbers you would judge the agent by.
 | `openspec/` | the change spec (proposal → design → specs → tasks) driving the build |
 
 ## Evaluation
-`scripts/pilot_report.py` reads real `scout_runs` and reports outcome distribution, recipe-type
-mix, verification pass rate, the free-vs-paid split, cost per publisher / per scouted publisher /
-per discovered event, and latency. Every number in the docs came from that script, not an estimate.
+
+Two separate bodies of evaluation work, because the system has two halves.
+
+**The agent** (this repo's code): `scripts/pilot_report.py` reads real `scout_runs` and reports
+outcome distribution, recipe-type mix, verification pass rate, the free-vs-paid split, cost per
+publisher / per scouted publisher / per discovered event, and latency. Every number in `docs/`
+came from that script, not an estimate.
+
+**Retrieval and the concierge**: [`evaluation/`](evaluation/) — the other half of the project.
+Once events are in the database, does asking for them in natural language return the right ones?
+A frozen 25-query golden set, **four rounds** of hand-labeled relevance judgements (including two
+rounds that corrected my own labeling mistakes), and one-variable experiments over embedding
+models, retrieval techniques, prompting techniques and LLM judges — each with Recall@5, MRR,
+nDCG@5, cost and latency.
+
+Headline results: a small embedding model beat a much larger one; plain vector search beat BM25,
+RRF, Multi-Query and HyDE on every metric; few-shot won on all 9 models tested; and a 31B open
+model held the Pareto frontier at 92% accuracy for $0.00012/turn.
+
+Start at [`evaluation/showcase/testing-report.html`](evaluation/showcase/testing-report.html).
 
 ## Status
 Working end to end and measured on real venues; scaling decision documented in

@@ -1,0 +1,35 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pulse — qrels labeling sheet (golden set v1)</title>
+<style>
+ :root { color-scheme: light dark; --line:#88888840; --card:#88888812 }
+ body { font:15px/1.5 system-ui,sans-serif; max-width:860px; margin:2rem auto; padding:0 1rem }
+ h2 { border-bottom:1px solid var(--line); padding-bottom:.3rem; margin-top:2.2rem }
+ h2 em { font-weight:normal }
+ .hint { color:#888; font-size:.9em }
+ .card { display:flex; gap:.7rem; border:1px solid var(--line); background:var(--card);
+         border-radius:8px; padding:.6rem .8rem; margin:.4rem 0; cursor:pointer }
+ .card:has(input:checked) { outline:2px solid #16a34a }
+ .card p { margin:.2rem 0 0; color:#888; font-size:.88em }
+ .meta { display:block; color:#888; font-size:.85em }
+ #bar { position:sticky; top:0; background:Canvas; padding:.7rem 0; border-bottom:1px solid var(--line);
+        display:flex; gap:1rem; align-items:center; z-index:2 }
+ button { font:inherit; padding:.45rem 1rem; border-radius:8px; border:1px solid var(--line);
+          cursor:pointer; background:#16a34a; color:white }
+</style></head><body>
+<div id="bar"><button onclick="exportQrels()">Export qrels_v1.jsonl</button>
+<span id="count">0 relevant ticked</span></div>
+<h1>Delta labeling — Experiment 2 candidates</h1><p>Only events NOT in the first labeling round. Export appends as <code>qrels_v1_delta.jsonl</code> — save to eval/golden_set/ and re-run benchmark_retrieval after merging.</p><section><h2>q13 <em>learn something new workshop</em></h2><p class='hint'>NEW candidates from Experiment-2 configs (1) — tick the relevant ones.</p><label class="card"><input type="checkbox" data-q="q13" data-e="7bfd096d-890d-4852-8988-3a9d76d4e151"><div><b>Saatgutbibliothek der Ingeborg-Bachmann-Bibliothek</b><span class="meta">culture/ · Ingeborg-Bachmann-Bibliothek (Stadtteilbibliothek West) · 2026-07-30T13:00</span><p>Ab dem 15.04.2026  wird die Ingeborg-Bachmann-Bibliothek nicht nur zur Anlaufstelle für Bücherwürmer, sondern auch für alle mit grünem Daumen (und solche, die ihn noch suchen). Wir starten unsere eigene Saatgutbibliothek…</p></div></label></section><script>
+const boxes = [...document.querySelectorAll('input[type=checkbox]')];
+const count = document.getElementById('count');
+boxes.forEach(b => b.addEventListener('change', () =>
+  count.textContent = boxes.filter(x => x.checked).length + ' relevant ticked'));
+function exportQrels() {
+  const lines = boxes.filter(b => b.checked)
+    .map(b => JSON.stringify({query_id: b.dataset.q, event_id: b.dataset.e, relevant: 1}));
+  const blob = new Blob([lines.join('\n') + '\n'], {type: 'application/jsonl'});
+  const a = Object.assign(document.createElement('a'),
+    {href: URL.createObjectURL(blob), download: 'qrels_v1_delta.jsonl'});
+  a.click();
+}
+</script></body></html>

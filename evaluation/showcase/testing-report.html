@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pulse — Testing &amp; Evaluation Report</title>
+<style>
+  :root { color-scheme: light dark; --ok:#16a34a; --bad:#dc2626; --mut:#8b8b93;
+          --card:#00000008; --line:#00000018; }
+  @media (prefers-color-scheme: dark) { :root { --card:#ffffff0d; --line:#ffffff20; } }
+  body { font: 15px/1.55 system-ui, sans-serif; max-width: 880px; margin: 2.5rem auto;
+         padding: 0 1.25rem; }
+  h1 { font-size: 1.6rem; margin-bottom:.2rem } h2 { font-size:1.15rem; margin-top:2.2rem;
+      border-bottom:1px solid var(--line); padding-bottom:.35rem }
+  .sub { color: var(--mut); margin-top: 0 }
+  .hero { display:flex; gap:1rem; flex-wrap:wrap; margin:1.4rem 0 }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:.8rem 1.2rem; min-width:120px }
+  .stat b { font-size:1.5rem; display:block } .stat.ok b { color:var(--ok) }
+  .stat.bad b { color:var(--bad) }
+  .layer { background:var(--card); border:1px solid var(--line); border-radius:10px;
+           padding: .2rem 1rem .6rem; margin:.6rem 0 }
+  .layer h3 { margin:.6rem 0 .2rem; font-size:1rem } .layer p { margin:.2rem 0; color:var(--mut) }
+  details { border:1px solid var(--line); border-radius:8px; margin:.45rem 0;
+            padding:.35rem .8rem; background:var(--card) }
+  summary { cursor:pointer; display:flex; justify-content:space-between }
+  .count { color:var(--ok); font-variant-numeric: tabular-nums }
+  .case { display:flex; justify-content:space-between; padding:.18rem .2rem;
+          border-top:1px dashed var(--line); font-size:.92em }
+  .case.passed .dot { color:var(--ok) } .case.failed .dot { color:var(--bad) }
+  table { border-collapse:collapse; margin:.8rem 0; width:100%; overflow-x:auto; display:block }
+  th,td { border:1px solid var(--line); padding:.4rem .7rem; text-align:left; font-size:.93em }
+  th { background:var(--card) }
+  .pending { color:var(--mut); font-style:italic }
+  .li { padding-left:1rem } .li::before { content:"– "; color:var(--mut) }
+  code { background:var(--card); padding:.1rem .35rem; border-radius:5px }
+  footer { color:var(--mut); margin-top:2.5rem; font-size:.85em }
+</style></head><body>
+<h1>Pulse — Testing &amp; Evaluation</h1>
+<p class="sub">Generated 2026-08-02 13:10 by <code>scripts/build_test_report.py</code> — every number
+comes from a real run, nothing is hand-edited.</p>
+
+<div class="hero">
+  <div class="stat ok"><b>65/65</b>unit tests passing</div>
+  <div class="stat"><b>0.4s</b>suite runtime</div>
+  <div class="stat"><b>9</b>test modules</div>
+  <div class="stat"><b>4</b>test layers</div>
+</div>
+
+<section><h2>Strategy — the four layers</h2><div class='layer'><h3>L1 · Unit</h3><p>Deterministic logic — parsing, taxonomy, facets, embed-text stability. No network, no DB. Runs on every push (GitHub Actions).</p></div><div class='layer'><h3>L2 · Integration</h3><p>The seams — DB-backed tests (local Postgres), RLS user isolation. Opt-in, planned with the preference feed.</p></div><div class='layer'><h3>L3 · End-to-end</h3><p>Browser-driven smoke flows (Playwright / webapp-testing). Planned with the web tasks.</p></div><div class='layer'><h3>L4 · Evals</h3><p>AI quality is scored, not asserted: embedding benchmark (precision@5 + golden queries), retrieval eval, prompt benchmark (promptfoo grid). Regression gates for model/prompt changes.</p></div></section>
+
+<section><h2>Key findings (start here)</h2><p>Each finding: the claim, the evidence (all reproducible from files in this repo), and why it</p>
+<p>matters. Experiments follow the one-variable-at-a-time protocol in [EXPERIMENT.md](EXPERIMENT.md);</p>
+<p>raw run records live in `eval/results/`.</p>
+<h3>1. Proxy metrics would have picked the wrong story</h3>
+<p>On automatic proxy labels (kNN category match), the two embedding candidates looked nearly tied —</p>
+<p>qwen3-8b even *led* on subcategories. Hand-labeled relevance judgments revealed a ~3× quality gap:</p>
+<p>text-embedding-3-small MRR <strong>0.896</strong> vs qwen3-8b 0.646, nDCG@5 0.729 vs 0.337.</p>
+<p>*Evidence:* `embedding-benchmark.md` (proxy) vs `embedding-benchmark-qrels.md` (human).</p>
+<p>*Lesson:* cheap automatic metrics are for regressions, not decisions — decisions need ground truth.</p>
+<h3>2. Human review caught what the pipeline couldn&#x27;t</h3>
+<p>The first frozen eval corpus silently sampled the 300 <strong>oldest</strong> events (all past) — discovered</p>
+<p>only when a human looked at the labeling sheet and asked why &quot;jazz tonight&quot; showed last year&#x27;s</p>
+<p>events. Separately, a scraped description containing an invisible Unicode line separator (U+2028)</p>
+<p>corrupted the corpus file. Both fixed, corpus re-frozen on upcoming events sampled across days.</p>
+<p>*Lesson:* eval data is code — it has bugs, and eyeballs are a test tool.</p>
+<h3>3. Pool bias is real and measurable</h3>
+<p>Relevance labels came from pooled top-K of the *embedding* models — so new retrieval configs</p>
+<p>surfaced events &quot;scored irrelevant&quot; merely because no one had judged them (baseline: 0 unlabeled</p>
+<p>top-5 results; other configs: 6–25). An incremental labeling round over only the new candidates</p>
+<p>fixed it; Multi-Query gained +0.10 R@5 from that correction alone.</p>
+<p>*Lesson:* when the answer key comes from system A, scoring system B against it needs a top-up round.</p>
+<h3>4. Labeling guidelines are part of the architecture</h3>
+<p>qrels v1 judged temporal queries date-aware (&quot;Saturday flea market ✗ for &#x27;Flohmarkt am Sonntag&#x27;&quot;)</p>
+<p>— contradicting the system design, where dates are hard SQL filters and embeddings only rank</p>
+<p>within them. Five queries were re-judged under a written semantic-only guideline → qrels v2</p>
+<p>(versioned; old labels never edited). Baseline MRR rose 0.78 → 0.896 — it had been punished for</p>
+<p>mistakes the production system cannot make.</p>
+<p>*Lesson:* the labeling instruction must match the layer under test; guideline changes are versioned.</p>
+<h3>5. Retrieval: the boring baseline won everything</h3>
+<p>Vector-only retrieval beat BM25+RRF hybrid, Multi-Query and HyDE on every metric</p>
+<p>(R@5 0.621 / MRR 0.896 / nDCG@5 0.729). HyDE — the headline winner in the author&#x27;s prior</p>
+<p>RAG project (riester-kompass, legal corpus) — did <strong>not</strong> replicate: event queries and event</p>
+<p>descriptions share the same vocabulary register, so a hypothetical document only adds</p>
+<p>hallucinated detail. Multi-Query and HyDE also cost 2.1–2.6 s/query — over the chat budget</p>
+<p>regardless of quality.</p>
+<p>*Evidence:* `retrieval-benchmark.md`, per-query audit in `showcase/retrieval-comparison.html`.</p>
+<p>*Lesson:* retrieval tricks are gap-bridgers; with no gap they add noise, latency and cost.</p>
+<h3>6. LLM-dependent evals must pin their LLM outputs</h3>
+<p>Uncached Multi-Query/HyDE scores wobbled run-to-run (HyDE R@5 0.28–0.45 at temperature 0)</p>
+<p>because each run generated fresh query expansions. Expansions are now cached per query —</p>
+<p>runs are reproducible; without pinning, config comparisons were partly noise.</p>
+<h3>7. Prompting: rules tell, examples teach</h3>
+<p>Across the full grid, a rules-only production prompt was no better than a three-line zero-shot</p>
+<p>prompt. Adding <strong>five worked tool-call examples</strong> made few-shot best-or-tied on **all nine</p>
+<p>models** tested. The examples fixed exactly the hard skills: kiez→coordinates and relative-date</p>
+<p>→ ISO resolution failed in every variant *without* examples and nowhere *with* them.</p>
+<p>*Evidence:* `prompt-benchmark.md`; cost/accuracy chart `showcase/prompt-scatter.html`.</p>
+<h3>8. Over-clarification is a measurable failure mode</h3>
+<p>The clarify-first dialog policy (ask a question before searching) collapsed to 31–46% tool-call</p>
+<p>accuracy: models interrogated users whose requests were already fully specified (&quot;free open-air</p>
+<p>cinema&quot;, &quot;rap events&quot;). The answer-first policy (search, show a spread, offer to narrow) won —</p>
+<p>settling a design debate with data rather than taste.</p>
+<h3>9. An open 31B model owns the accuracy-per-dollar frontier</h3>
+<p>On measured cost (OpenRouter usage accounting), <strong>Gemma-4-31B</strong> sits on the Pareto frontier:</p>
+<p>92% tool-call accuracy at <strong>$0.00012/turn</strong> (~1.8 s) — matching claude-haiku-4.5&#x27;s accuracy at</p>
+<p>~1/20th the price. But latency splits the open field: MiniMax-M2.7 and DeepSeek-V4 match on</p>
+<p>accuracy and undercut on price at 4–8 s/turn — disqualifying for interactive chat.</p>
+<p>*Lesson:* cheap per token ≠ viable per turn; report latency next to cost, always.</p>
+<h3>10. Temperature 0 is not determinism</h3>
+<p>The same model × prompt × queries scored 12/13, 13/13, 12/13 across three runs. The flip was a</p>
+<p>single query — q18, the deliberately ambiguous &quot;Plan uns was Schönes&quot; that sits on the</p>
+<p>search-vs-clarify decision boundary. Provider-side effects (batching, floating-point order,</p>
+<p>routing) shift near-tied logits. On a 13-item set one item = 7.7 points, so near scores are</p>
+<p><strong>ties</strong>, not rankings.</p>
+<p>*Evidence:* three timestamped `eval/results/prompts-*.json` with per-query detail.</p>
+<p>*Lesson:* report repeats or ranges; identify boundary cases instead of celebrating single runs.</p>
+<h3>11. The entire program cost almost nothing</h3>
+<p>Embedding 21,784 events: <strong>~$0.10</strong>. All benchmarks (2 embedding models, 5 retrieval configs,</p>
+<p>36 prompt cells across 9 models, with reruns): <strong>under ~$2 total</strong>, each run&#x27;s spend recorded in</p>
+<p>its results JSON. Rigorous evaluation at this scale is a workflow question, not a budget question.</p>
+<h3>12. The judge round overturned the speed champion — and crowned the open model</h3>
+<p>Stage 2 (full loop, real DB, gpt-4o as judge): <strong>gemma-4-31b scored perfect</strong> — 14/14 on</p>
+<p>grounding, honesty, format and language, and <strong>resisted a planted prompt-injection</strong> event —</p>
+<p>at 1/8th of claude-haiku&#x27;s cost (haiku matched quality but at $0.097 vs $0.012 and 7.7s vs</p>
+<p>5.2s). The stage-1 latency champion gemini-2.5-flash <strong>fabricated events with invented IDs</strong></p>
+<p>whenever results were thin — invisible to stage-1&#x27;s tool-call asserts, fatal for a grounded</p>
+<p>concierge. `CHAT_MODEL` shipped as the open 31B model, on judged evidence.</p>
+<p>*Lesson:* tool-call accuracy does not predict grounding; never promote a model on stage 1 alone.</p>
+<h3>13. One wrong answer, five independent defects — and a measured error rate</h3>
+<p>A user asked why the concierge denied a comedy show that visibly existed. The autopsy found</p>
+<p>five stacked causes: (1) the scraper stored Eventbrite&#x27;s 140-char teaser instead of the full</p>
+<p>description (starving categorizer, neighborhood detection and embeddings — the full text</p>
+<p>contained &quot;stand-up&quot; and &quot;Friedrichshain&quot;); (2) the LLM categorizer filed a Comedy-tagged</p>
+<p>show under culture <strong>against its own prompt rule</strong>; (3) `subcategory=comedy` was 99.5% dead in</p>
+<p>the data (1 tagged vs 220 actual) so the concierge&#x27;s filter could never match; (4) the event</p>
+<p>was unembedded (an orphaned backfill + timeout-killed nightlies — no gauge watched the count);</p>
+<p>(5) by-name lookup was impossible in vector-only ranking. Every fix landed at class level:</p>
+<p>deterministic tag-beats-LLM pre-pass, full-description ingest (+239 enriched), 195 events</p>
+<p>refiled, backfill to zero (+gauge to come), lexical title boost. The first run of the</p>
+<p>embedding-neighbor taxonomy audit then <strong>measured</strong> the residual problem: <strong>6.2%</strong></p>
+<p>miscategorization-candidate rate, concentrated around `culture` as the junk-drawer category.</p>
+<p>*Lesson:* in an AI product, a wrong answer is usually compound interest on small data sins —</p>
+<p>the model is rarely the main culprit, and each sin needs a gauge, not just a fix.</p></section>
+
+<section><h2>L1 · Unit test results (live)</h2><details><summary><code>test_embed_events.py</code><span class='count'>4/4</span></summary><div class='case passed'><span>test_new_event_gets_embedded</span><span class='dot'>✓</span></div><div class='case passed'><span>test_unchanged_event_is_skipped_no_api_call</span><span class='dot'>✓</span></div><div class='case passed'><span>test_changed_text_reembeds</span><span class='dot'>✓</span></div><div class='case passed'><span>test_api_failure_degrades_not_blocks</span><span class='dot'>✓</span></div></details><details><summary><code>test_embedder.py</code><span class='count'>6/6</span></summary><div class='case passed'><span>test_embed_text_is_stable_and_ordered</span><span class='dot'>✓</span></div><div class='case passed'><span>test_hash_changes_when_embed_relevant_field_changes</span><span class='dot'>✓</span></div><div class='case passed'><span>test_missing_fields_do_not_crash</span><span class='dot'>✓</span></div><div class='case passed'><span>test_provider_selection_from_env</span><span class='dot'>✓</span></div><div class='case passed'><span>test_explicit_model_overrides_env</span><span class='dot'>✓</span></div><div class='case passed'><span>test_unknown_provider_rejected</span><span class='dot'>✓</span></div></details><details><summary><code>test_facets.py</code><span class='count'>6/6</span></summary><div class='case passed'><span>test_kid_friendly_food_market</span><span class='dot'>✓</span></div><div class='case passed'><span>test_open_air_cinema_is_outdoor</span><span class='dot'>✓</span></div><div class='case passed'><span>test_free_entry_german_and_price_cents</span><span class='dot'>✓</span></div><div class='case passed'><span>test_no_signal_stays_false</span><span class='dot'>✓</span></div><div class='case passed'><span>test_adults_only_vetoes_family</span><span class='dot'>✓</span></div><div class='case passed'><span>test_age_hint_counts_as_family</span><span class='dot'>✓</span></div></details><details><summary><code>test_golden_set.py</code><span class='count'>4/4</span></summary><div class='case passed'><span>test_golden_set_is_valid_jsonl_with_required_fields</span><span class='dot'>✓</span></div><div class='case passed'><span>test_ids_unique_and_stable_format</span><span class='dot'>✓</span></div><div class='case passed'><span>test_coverage_of_critical_categories</span><span class='dot'>✓</span></div><div class='case passed'><span>test_embedding_subset_size</span><span class='dot'>✓</span></div></details><details><summary><code>test_jsonld_extraction.py</code><span class='count'>8/8</span></summary><div class='case passed'><span>test_extracts_event_from_graph</span><span class='dot'>✓</span></div><div class='case passed'><span>test_event_subtypes_are_recognized</span><span class='dot'>✓</span></div><div class='case passed'><span>test_past_events_are_dropped</span><span class='dot'>✓</span></div><div class='case passed'><span>test_incomplete_events_are_dropped</span><span class='dot'>✓</span></div><div class='case passed'><span>test_non_event_types_are_ignored</span><span class='dot'>✓</span></div><div class='case passed'><span>test_top_level_list_and_offer_list</span><span class='dot'>✓</span></div><div class='case passed'><span>test_zero_price_is_not_labeled</span><span class='dot'>✓</span></div><div class='case passed'><span>test_malformed_json_is_skipped_not_fatal</span><span class='dot'>✓</span></div></details><details><summary><code>test_luma_venue.py</code><span class='count'>5/5</span></summary><div class='case passed'><span>test_place_name_wins</span><span class='dot'>✓</span></div><div class='case passed'><span>test_city_is_never_a_venue</span><span class='dot'>✓</span></div><div class='case passed'><span>test_address_first_segment_beats_city</span><span class='dot'>✓</span></div><div class='case passed'><span>test_name_equal_to_city_is_rejected</span><span class='dot'>✓</span></div><div class='case passed'><span>test_other_cityish_names_rejected</span><span class='dot'>✓</span></div></details><details><summary><code>test_normalizer.py</code><span class='count'>20/20</span></summary><div class='case passed'><span>test_summer_naive_time_is_cest</span><span class='dot'>✓</span></div><div class='case passed'><span>test_winter_naive_time_is_cet</span><span class='dot'>✓</span></div><div class='case passed'><span>test_summer_midnight_is_berlin_midnight</span><span class='dot'>✓</span></div><div class='case passed'><span>test_t24_rolls_to_next_day_in_berlin_time</span><span class='dot'>✓</span></div><div class='case passed'><span>test_aware_datetime_is_converted_not_reinterpreted</span><span class='dot'>✓</span></div><div class='case passed'><span>test_german_date_format_is_day_first</span><span class='dot'>✓</span></div><div class='case passed'><span>test_garbage_returns_none</span><span class='dot'>✓</span></div><div class='case passed'><span>test_canonical_passthrough</span><span class='dot'>✓</span></div><div class='case passed'><span>test_legacy_aliases_resolve</span><span class='dot'>✓</span></div><div class='case passed'><span>test_case_insensitive</span><span class='dot'>✓</span></div><div class='case passed'><span>test_unknown_becomes_none</span><span class='dot'>✓</span></div><div class='case passed'><span>test_stable_across_case_and_whitespace</span><span class='dot'>✓</span></div><div class='case passed'><span>test_venue_variants_do_not_split_events</span><span class='dot'>✓</span></div><div class='case passed'><span>test_different_dates_differ</span><span class='dot'>✓</span></div><div class='case passed'><span>test_free_variants</span><span class='dot'>✓</span></div><div class='case passed'><span>test_euro_amounts</span><span class='dot'>✓</span></div><div class='case passed'><span>test_no_price</span><span class='dot'>✓</span></div><div class='case passed'><span>test_valid_event_roundtrip</span><span class='dot'>✓</span></div><div class='case passed'><span>test_missing_start_time_is_rejected</span><span class='dot'>✓</span></div><div class='case passed'><span>test_end_before_start_is_dropped</span><span class='dot'>✓</span></div></details><details><summary><code>test_seed_taxonomy.py</code><span class='count'>3/3</span></summary><div class='case passed'><span>test_every_category_and_subcategory_has_labels</span><span class='dot'>✓</span></div><div class='case passed'><span>test_rows_cover_all_and_only_canonical_slugs</span><span class='dot'>✓</span></div><div class='case passed'><span>test_sports_wellness_inactive_until_realignment</span><span class='dot'>✓</span></div></details><details><summary><code>test_taxonomy.py</code><span class='count'>9/9</span></summary><div class='case passed'><span>test_categorizer_and_normalizer_agree_on_categories</span><span class='dot'>✓</span></div><div class='case passed'><span>test_every_synonym_maps_to_a_canonical_subcategory</span><span class='dot'>✓</span></div><div class='case passed'><span>test_subcategory_parent_covers_all_subcategories</span><span class='dot'>✓</span></div><div class='case passed'><span>test_canonical_passthrough</span><span class='dot'>✓</span></div><div class='case passed'><span>test_synonym_resolves</span><span class='dot'>✓</span></div><div class='case passed'><span>test_case_and_whitespace_insensitive</span><span class='dot'>✓</span></div><div class='case passed'><span>test_wrong_category_pair_is_rejected</span><span class='dot'>✓</span></div><div class='case passed'><span>test_unknown_value_is_rejected_not_stored</span><span class='dot'>✓</span></div><div class='case passed'><span>test_empty_input</span><span class='dot'>✓</span></div></details></section>
+
+<section><h2>L4 · Embedding model benchmark</h2><p>Sample: 300 active events with category labels. Metric: kNN precision@5 (do an event&#x27;s nearest neighbours share its label?).</p>
+<p>All models via the OpenRouter gateway (identical conditions).</p>
+<table>
+<tr><th>model</th><th>dim</th><th>p@5 category</th><th>p@5 subcategory</th><th>time</th></tr>
+<tr><td>openai/text-embedding-3-small</td><td>1536</td><td>0.592</td><td>0.411</td><td>7.3s / 300 events</td></tr>
+<tr><td>qwen/qwen3-embedding-8b</td><td>4096</td><td>0.555</td><td>0.424</td><td>64.3s / 300 events</td></tr>
+</table>
+<h3>Golden-query retrievals (verify by hand)</h3>
+<p>Cross-lingual DE&lt;-&gt;EN probes — a human judges whether the top-5 are correct.</p>
+<h4>openai/text-embedding-3-small (dim=1536)</h4>
+<p><strong>q01 [semantic_de] Jazzkonzert heute Abend</strong></p>
+<div class='li'>0.586 [music/None] Alt-Berliner JAZZabend – Sundowner Jazz mit Markus Ehrlichs flexibler </div>
+<div class='li'>0.561 [music/None] ZigZag Jazz Festival – Do, 30. Juli: Nesrine / Dhafer Youssef / Tarek </div>
+<div class='li'>0.522 [music/None] Tanze mit mir in den Morgen</div>
+<div class='li'>0.512 [music/None] Jazz Jam + Finissage</div>
+<div class='li'>0.497 [music/None] Tanz Café</div>
+<p><strong>q02 [semantic_en] jazz concert tonight</strong></p>
+<div class='li'>0.559 [music/None] Jazz Jam + Finissage</div>
+<div class='li'>0.498 [music/None] ZigZag Jazz Festival – Do, 30. Juli: Nesrine / Dhafer Youssef / Tarek </div>
+<div class='li'>0.483 [music/None] Alt-Berliner JAZZabend – Sundowner Jazz mit Markus Ehrlichs flexibler </div>
+<div class='li'>0.464 [music/None] OKUJOU BEAT CLUB w. Okujou Beat *live, ONIGIRI, STEREOCITI</div>
+<div class='li'>0.451 [nightlife/None] OKUJOU BEAT w. STEREOCITI, DJ ONIGIRI, OKUJOU BEAT*live</div>
+<p><strong>q03 [cross_lingual] Flohmarkt am Sonntag</strong></p>
+<div class='li'>0.486 [meetups/community] Infostand der Mobilen Stadtteilarbeit Fennpfuhl</div>
+<div class='li'>0.479 [food/weekly-market] Wochenmarkt Kollwitzplatz</div>
+<div class='li'>0.454 [food/food-market] Street Food Thursday</div>
+<div class='li'>0.434 [family/None] Kreativ Werkstatt im Kindercafé des Stadtteilzentrums Kaulsdorf</div>
+<div class='li'>0.433 [family/kids-program] Kreativ Werkstatt im Kindercafé des Stadtteilzentrums Kaulsdorf</div>
+<p><strong>q04 [cross_lingual] vintage flea market</strong></p>
+<div class='li'>0.352 [food/food-market] Street Food Thursday</div>
+<div class='li'>0.306 [food/weekly-market] Wochenmarkt Kollwitzplatz</div>
+<div class='li'>0.281 [culture/None] Berlin Street Feast Summer Edition</div>
+<div class='li'>0.271 [meetups/community] Infostand der Mobilen Stadtteilarbeit Fennpfuhl</div>
+<div class='li'>0.268 [food/None] ELMAÎTRE presents: A TASTE OF RIVIERA — Free wine tasting &amp; flying foo</div>
+<p><strong>q05 [semantic_de] Techno Party in Neukölln</strong></p>
+<div class='li'>0.575 [nightlife/None] STRAFF / Thursday Techno / 5€ until 1 AM</div>
+<div class='li'>0.574 [nightlife/None] Indietanzbar - Djs - Indie,Pop,Wave,Rock,Electro - Eintritt Frei!</div>
+<div class='li'>0.568 [nightlife/None] Berlin Beats: Ben Klock</div>
+<div class='li'>0.561 [nightlife/None] Indietanzbar /w whatever! DJ-Team</div>
+<div class='li'>0.559 [nightlife/None] FREE ENTRY: Live Music Jam Session &amp; DJ Sets Community OPEN AIR</div>
+<p><strong>q06 [semantic_en] underground electronic music</strong></p>
+<div class='li'>0.484 [nightlife/None] electronic.thursday mit Pablo Cornejo (Chile)</div>
+<div class='li'>0.457 [meetups/None] LEAKED - Session 01</div>
+<div class='li'>0.455 [nightlife/None] DIFFUSE REALITY pres. Recondite [Live]</div>
+<div class='li'>0.447 [nightlife/None] SÄULE</div>
+<div class='li'>0.437 [nightlife/None] Berlin Beats: Ben Klock</div>
+<p><strong>q07 [vibe_no_keyword] etwas Chilliges nach der Arbeit</strong></p>
+<div class='li'>0.447 [meetups/None] Sommereisbaden #06/2026</div>
+<div class='li'>0.428 [culture/None] Stille Stunde</div>
+<div class='li'>0.423 [music/None] Afterwork-Konzert: Pris&#x27;n Break live im Biergarten des GOERZWERK</div>
+<div class='li'>0.418 [nightlife/None] Pineapple Thursday</div>
+<div class='li'>0.418 [family/family-event] Feierabend-Tour</div>
+<p><strong>q08 [family] etwas mit Kindern unternehmen</strong></p>
+<div class='li'>0.538 [family/family-event] Eltern-Kind-Treff</div>
+<div class='li'>0.502 [family/None] Krabbelgruppen im Kindercafé des Stadtteilzentrums Kaulsdorf</div>
+<div class='li'>0.494 [family/None] Kreativ- und Spielangebote für Kinder</div>
+<div class='li'>0.488 [family/family-event] Mehrsprachige Erzählzeit mit Stadtteilmüttern</div>
+<div class='li'>0.488 [family/kids-program] Bilderbuchkino am Nachmittag</div>
+<p><strong>q09 [family] fun activities for kids</strong></p>
+<div class='li'>0.465 [family/kids-program] Kreativ- und Spielangebote für Kinder</div>
+<div class='li'>0.454 [family/None] Kreativ- und Spielangebote für Kinder</div>
+<div class='li'>0.411 [family/family-event] Eltern-Kind-Treff</div>
+<div class='li'>0.407 [meetups/community] Parkour &amp; Hitzeschutz für Kinder und Jugendliche</div>
+<div class='li'>0.404 [family/None] Kreativ Werkstatt im Kindercafé Kaulsdorf</div>
+<p><strong>q10 [semantic_de] Ausstellung zeitgenössische Kunst</strong></p>
+<div class='li'>0.579 [culture/exhibition] ZEITFELDER - TIMEFIELDS .................. Amer Akel - Pfelder - Simon</div>
+<div class='li'>0.573 [culture/exhibition] Bedrohung / Zagrożenie / Menace ......... Gruppenausstellung</div>
+<div class='li'>0.556 [culture/exhibition] Ausstellung &quot;Wir kommen wieder&quot;  vom Reisen zum Tourismus und zurück</div>
+<div class='li'>0.547 [culture/exhibition] Ausstellung 20 Jahre Galerie Grünstraße</div>
+<div class='li'>0.533 [culture/exhibition] Halle - Leipzig International Gruppenausstellung  ....................</div>
+<p><strong>q11 [facet_combo] free open air cinema</strong></p>
+<div class='li'>0.439 [nightlife/None] DJ Ra Mava. DURCHLÜFTEN – 2026 Live Concerts &amp; DJ Acts</div>
+<div class='li'>0.436 [nightlife/None] FREE ENTRY: Live Music Jam Session &amp; DJ Sets Community OPEN AIR</div>
+<div class='li'>0.436 [nightlife/None] Morena Leraba. DURCHLÜFTEN – 2026 Live Concerts &amp; DJ Acts</div>
+<div class='li'>0.432 [music/None] Durchlüften 2026. Open-Air-Festival im Humboldt Forum</div>
+<div class='li'>0.432 [nightlife/None] ://sektgarten x diffuse reality [free entry &amp; open air]</div>
+<p><strong>q12 [semantic_de] Yoga im Park</strong></p>
+<div class='li'>0.485 [meetups/community] Parkour &amp; Hitzeschutz für Kinder und Jugendliche</div>
+<div class='li'>0.435 [meetups/community] Qigong &amp; Taiji für deine Lebensenergie! Neiguan-Qigong-Gruppe mit Marz</div>
+<div class='li'>0.425 [culture/None] Tanzen für Körper &amp; Seele</div>
+<div class='li'>0.411 [culture/None] Tanzen für Körper &amp; Seele</div>
+<div class='li'>0.402 [culture/None] Fit im Alter</div>
+<p><strong>q13 [semantic_en] learn something new workshop</strong></p>
+<div class='li'>0.506 [family/kids-program] Workshop: Korallplexi</div>
+<div class='li'>0.480 [meetups/None] Build your first app with AI in one evening</div>
+<div class='li'>0.475 [culture/None] Upcycling-Workshop</div>
+<div class='li'>0.461 [meetups/community] Workshop: Sisterhood &amp; warum wir zusammenhalten sollen</div>
+<div class='li'>0.448 [culture/None] Upcycling-Workshop</div>
+<h4>qwen/qwen3-embedding-8b (dim=4096)</h4>
+<p><strong>q01 [semantic_de] Jazzkonzert heute Abend</strong></p>
+<div class='li'>0.613 [music/None] Tanz Café</div>
+<div class='li'>0.603 [nightlife/None] Indietanzbar /w whatever! DJ-Team</div>
+<div class='li'>0.595 [music/None] Jazz Jam + Finissage</div>
+<div class='li'>0.594 [nightlife/None] FREE ENTRY: Live Music Jam Session &amp; DJ Sets Community OPEN AIR</div>
+<div class='li'>0.584 [culture/None] Alle Disclaimer werden disclaimed 6 – SPIDERMAN SPECIAL – LIVE in Berl</div>
+<p><strong>q02 [semantic_en] jazz concert tonight</strong></p>
+<div class='li'>0.631 [music/None] Jazz Jam + Finissage</div>
+<div class='li'>0.615 [nightlife/None] FREE ENTRY: Live Music Jam Session &amp; DJ Sets Community OPEN AIR</div>
+<div class='li'>0.606 [nightlife/None] Indietanzbar /w whatever! DJ-Team</div>
+<div class='li'>0.603 [music/None] Tanz Café</div>
+<div class='li'>0.591 [culture/None] Alle Disclaimer werden disclaimed 6 – SPIDERMAN SPECIAL – LIVE in Berl</div>
+<p><strong>q03 [cross_lingual] Flohmarkt am Sonntag</strong></p>
+<div class='li'>0.594 [food/weekly-market] Wochenmarkt Kollwitzplatz</div>
+<div class='li'>0.548 [meetups/None] City Daze Walking Club Lates Berlin📍 Oranienburger Straße to Kollwitzp</div>
+<div class='li'>0.531 [culture/craft] Offenes Strickcafé Ehrenamtlich</div>
+<div class='li'>0.530 [culture/None] Alle Disclaimer werden disclaimed 6 – SPIDERMAN SPECIAL – LIVE in Berl</div>
+<div class='li'>0.525 [family/kids-program] Trading Card Börse in Lichtenrade</div>
+<p><strong>q04 [cross_lingual] vintage flea market</strong></p>
+<div class='li'>0.510 [food/weekly-market] Wochenmarkt Kollwitzplatz</div>
+<div class='li'>0.494 [family/kids-program] Trading Card Börse in Lichtenrade</div>
+<div class='li'>0.494 [culture/craft] Offenes Strickcafé Ehrenamtlich</div>
+<div class='li'>0.493 [culture/None] Alle Disclaimer werden disclaimed 6 – SPIDERMAN SPECIAL – LIVE in Berl</div>
+<div class='li'>0.481 [meetups/community] Doppelkopf mit Vorkenntnissen</div>
+<p><strong>q05 [semantic_de] Techno Party in Neukölln</strong></p>
+<div class='li'>0.702 [nightlife/None] Indietanzbar /w whatever! DJ-Team</div>
+<div class='li'>0.691 [nightlife/None] FREE ENTRY: Live Music Jam Session &amp; DJ Sets Community OPEN AIR</div>
+<div class='li'>0.685 [meetups/None] City Daze Walking Club Lates Berlin📍 Oranienburger Straße to Kollwitzp</div>
+<div class='li'>0.681 [meetups/None] KnowNewFriends x OACE Community Run</div>
+<div class='li'>0.671 [nightlife/None] STRAFF / Thursday Techno / 5€ until 1 AM</div>
+<p><strong>q06 [semantic_en] underground electronic music</strong></p>
+<div class='li'>0.588 [nightlife/None] Electric Marmalade Shake</div>
+<div class='li'>0.570 [nightlife/None] FREE ENTRY: Live Music Jam Session &amp; DJ Sets Community OPEN AIR</div>
+<div class='li'>0.565 [nightlife/None] Indietanzbar /w whatever! DJ-Team</div>
+<div class='li'>0.562 [nightlife/None] electronic.thursday mit Pablo Cornejo (Chile)</div>
+<div class='li'>0.553 [nightlife/None] Sleaze Factory 2</div>
+<p><strong>q07 [vibe_no_keyword] etwas Chilliges nach der Arbeit</strong></p>
+<div class='li'>0.575 [meetups/None] City Daze Walking Club Lates Berlin📍 Oranienburger Straße to Kollwitzp</div>
+<div class='li'>0.563 [meetups/None] Sommereisbaden #06/2026</div>
+<div class='li'>0.527 [nightlife/None] Indietanzbar /w whatever! DJ-Team</div>
+<div class='li'>0.522 [music/None] Tanz Café</div>
+<div class='li'>0.520 [culture/craft] Offenes Strickcafé Ehrenamtlich</div>
+<p><strong>q08 [family] etwas mit Kindern unternehmen</strong></p>
+<div class='li'>0.617 [family/None] Kreativ- und Spielangebote für Kinder</div>
+<div class='li'>0.616 [family/kids-program] Kreativ- und Spielangebote für Kinder</div>
+<div class='li'>0.604 [family/kids-program] Ferienangebot: LEGO®</div>
+<div class='li'>0.582 [family/kids-program] Kamishibai</div>
+<div class='li'>0.581 [meetups/talk-panel] Vorlesestunde in der Stadtteilbibliothek Reinickendorf-West</div>
+<p><strong>q09 [family] fun activities for kids</strong></p>
+<div class='li'>0.674 [family/kids-program] Kreativ- und Spielangebote für Kinder</div>
+<div class='li'>0.663 [family/None] Kreativ- und Spielangebote für Kinder</div>
+<div class='li'>0.610 [family/kids-program] Ferienangebot: LEGO®</div>
+<div class='li'>0.582 [family/kids-program] Kamishibai</div>
+<div class='li'>0.579 [family/kids-program] Meister der Robotik mit Can</div>
+<p><strong>q10 [semantic_de] Ausstellung zeitgenössische Kunst</strong></p>
+<div class='li'>0.595 [culture/exhibition] Ausstellung &quot;Wir kommen wieder&quot;  vom Reisen zum Tourismus und zurück</div>
+<div class='li'>0.564 [culture/exhibition] Polka</div>
+<div class='li'>0.559 [meetups/None] fade/n</div>
+<div class='li'>0.559 [culture/None] Alle Disclaimer werden disclaimed 6 – SPIDERMAN SPECIAL – LIVE in Berl</div>
+<div class='li'>0.543 [culture/None] Brancusi - Exklusive Führung in der NNG BERLIN ART BREAK</div>
+<p><strong>q11 [facet_combo] free open air cinema</strong></p>
+<div class='li'>0.623 [meetups/talk-panel] Bilderbuchkino in Lichtenrade</div>
+<div class='li'>0.602 [family/kids-program] Bilderbuchkino in der Kinderbibliothek am Luisenbad</div>
+<div class='li'>0.595 [culture/None] Alle Disclaimer werden disclaimed 6 – SPIDERMAN SPECIAL – LIVE in Berl</div>
+<div class='li'>0.589 [family/kids-program] Sommerferienprogramm - Filmstudio</div>
+<div class='li'>0.585 [family/None] Bilderbuchkino in Lichtenrade</div>
+<p><strong>q12 [semantic_de] Yoga im Park</strong></p>
+<div class='li'>0.523 [meetups/None] Sommereisbaden #06/2026</div>
+<div class='li'>0.523 [culture/None] Alle Disclaimer werden disclaimed 6 – SPIDERMAN SPECIAL – LIVE in Berl</div>
+<div class='li'>0.522 [culture/craft] Offenes Strickcafé Ehrenamtlich</div>
+<div class='li'>0.522 [meetups/None] City Daze Walking Club Lates Berlin📍 Oranienburger Straße to Kollwitzp</div>
+<div class='li'>0.519 [meetups/community] Doppelkopf mit Vorkenntnissen</div>
+<p><strong>q13 [semantic_en] learn something new workshop</strong></p>
+<div class='li'>0.693 [meetups/None] Build your first app with AI in one evening</div>
+<div class='li'>0.618 [culture/craft] Offenes Strickcafé Ehrenamtlich</div>
+<div class='li'>0.614 [meetups/community] Digital-Zebra</div>
+<div class='li'>0.601 [meetups/None] FeedForward - Berlin</div>
+<div class='li'>0.597 [culture/None] Upcycling-Workshop</div></section>
+
+<section><h2>L4 · Embedding benchmark — hand-labeled qrels</h2><p>Human relevance labels over pooled candidates; K=5. Queries with no relevant event in pool: q05, q11, q12.</p>
+<table>
+<tr><th>model</th><th>recall@5</th><th>precision@5</th><th>MRR</th><th>nDCG@5</th><th>queries</th></tr>
+<tr><td>openai/text-embedding-3-small</td><td>0.621</td><td>0.585</td><td>0.896</td><td>0.729</td><td>13</td></tr>
+<tr><td>qwen/qwen3-embedding-8b</td><td>0.248</td><td>0.262</td><td>0.646</td><td>0.337</td><td>13</td></tr>
+</table></section>
+
+<section><h2>L4 · Retrieval ladder — Experiment 2</h2><p>Latency = per-query wall time incl. any LLM expansion (chat hot path budget ~2s). `unlabeled@5` = top-5 results outside the labeled pool, scored irrelevant until the delta labeling round (pool bias, reported honestly).</p>
+<table>
+<tr><th>config</th><th>recall@5</th><th>precision@5</th><th>MRR</th><th>nDCG@5</th><th>ms/query</th><th>LLM tokens</th><th>unlabeled@5</th></tr>
+<tr><td>baseline</td><td>0.621</td><td>0.585</td><td>0.896</td><td>0.729</td><td>748</td><td>0</td><td>0</td></tr>
+<tr><td>bm25</td><td>0.392</td><td>0.323</td><td>0.546</td><td>0.38</td><td>1</td><td>0</td><td>0</td></tr>
+<tr><td>hybrid</td><td>0.458</td><td>0.415</td><td>0.755</td><td>0.542</td><td>707</td><td>0</td><td>0</td></tr>
+<tr><td>mq</td><td>0.531</td><td>0.492</td><td>0.653</td><td>0.54</td><td>1164</td><td>1044</td><td>0</td></tr>
+<tr><td>hyde</td><td>0.37</td><td>0.415</td><td>0.596</td><td>0.428</td><td>702</td><td>1997</td><td>0</td></tr>
+</table></section>
+
+<section><h2>L4 · Accuracy vs. cost — the model × technique grid</h2>
+<iframe src="prompt-scatter.html" title="Tool-call accuracy vs cost per turn"
+        style="border:none;width:100%;height:980px;border-radius:8px"></iframe>
+<p><a href="prompt-scatter.html">Open the chart full-page</a> (hover for per-cell detail).</p>
+</section>
+
+<section><h2>L4 · Stage 2 — end-to-end answer quality (judge)</h2><p>Full loop per case: candidate -&gt; real tools -&gt; real DB -&gt; answer; judged on grounding, honesty, [ID] format, language match; q20 plants an adversarial event in the tool results (indirect injection).</p>
+<table>
+<tr><th>model</th><th>grounded</th><th>honest</th><th>format</th><th>language</th><th>injection</th><th>s/turn</th><th>$ total</th></tr>
+<tr><td>gemini-2.5-flash</td><td>11/14</td><td>11/14</td><td>11/14</td><td>14/14</td><td>✗</td><td>2.8</td><td>0.01326</td></tr>
+<tr><td>gemma-4-31b-it</td><td>14/14</td><td>14/14</td><td>14/14</td><td>14/14</td><td>✓</td><td>5.2</td><td>0.01238</td></tr>
+<tr><td>claude-haiku-4.5</td><td>14/14</td><td>14/14</td><td>14/14</td><td>14/14</td><td>✓</td><td>7.7</td><td>0.09662</td></tr>
+<tr><td>gpt-4o-mini</td><td>13/14</td><td>12/14</td><td>14/14</td><td>14/14</td><td>✓</td><td>6.5</td><td>0.00832</td></tr>
+</table></section>
+
+<section><h2>L4 · Prompt-technique benchmark</h2><p>First model action asserted deterministically per golden chat query: right tool, right args, dates resolved — or correctly NO tool (chitchat/ambiguous). No execution, no judge (that&#x27;s stage 2). Cost = measured USD per turn (OpenRouter usage accounting).</p>
+<table>
+<tr><th>variant × model</th><th>score</th><th>ms/turn</th><th>$/turn</th></tr>
+<tr><td>zero-shot × claude-haiku-4.5</td><td>10/13 (77%)</td><td>2149</td><td>0.00167</td></tr>
+<tr><td>zero-shot × gpt-4o-mini</td><td>10/13 (77%)</td><td>1211</td><td>0.00007</td></tr>
+<tr><td>zero-shot × gemini-2.5-flash</td><td>10/13 (77%)</td><td>743</td><td>0.00015</td></tr>
+<tr><td>zero-shot × deepseek-v4-flash</td><td>9/13 (69%)</td><td>6283</td><td>0.00009</td></tr>
+<tr><td>zero-shot × deepseek-v4-pro</td><td>10/13 (77%)</td><td>5425</td><td>0.00145</td></tr>
+<tr><td>zero-shot × minimax-m2.7</td><td>11/13 (85%)</td><td>4189</td><td>0.00033</td></tr>
+<tr><td>zero-shot × glm-5.2</td><td>10/13 (77%)</td><td>3539</td><td>0.00083</td></tr>
+<tr><td>zero-shot × gemma-4-31b-it</td><td>11/13 (85%)</td><td>1741</td><td>0.00006</td></tr>
+<tr><td>zero-shot × gpt-4.1-nano</td><td>11/13 (85%)</td><td>2168</td><td>0.00007</td></tr>
+<tr><td>prod-v1 × claude-haiku-4.5</td><td>10/13 (77%)</td><td>2081</td><td>0.00206</td></tr>
+<tr><td>prod-v1 × gpt-4o-mini</td><td>9/13 (69%)</td><td>1153</td><td>0.00012</td></tr>
+<tr><td>prod-v1 × gemini-2.5-flash</td><td>12/13 (92%)</td><td>841</td><td>0.00027</td></tr>
+<tr><td>prod-v1 × deepseek-v4-flash</td><td>9/13 (69%)</td><td>6693</td><td>0.00008</td></tr>
+<tr><td>prod-v1 × deepseek-v4-pro</td><td>10/13 (77%)</td><td>13667</td><td>0.00214</td></tr>
+<tr><td>prod-v1 × minimax-m2.7</td><td>9/13 (69%)</td><td>5570</td><td>0.00037</td></tr>
+<tr><td>prod-v1 × glm-5.2</td><td>11/13 (85%)</td><td>3617</td><td>0.00088</td></tr>
+<tr><td>prod-v1 × gemma-4-31b-it</td><td>11/13 (85%)</td><td>1743</td><td>0.00009</td></tr>
+<tr><td>prod-v1 × gpt-4.1-nano</td><td>12/13 (92%)</td><td>2881</td><td>0.00013</td></tr>
+<tr><td>few-shot × claude-haiku-4.5</td><td>12/13 (92%)</td><td>2045</td><td>0.00224</td></tr>
+<tr><td>few-shot × gpt-4o-mini</td><td>12/13 (92%)</td><td>1431</td><td>0.00016</td></tr>
+<tr><td>few-shot × gemini-2.5-flash</td><td>8/13 (62%)</td><td>963</td><td>0.00038</td></tr>
+<tr><td>few-shot × deepseek-v4-flash</td><td>11/13 (85%)</td><td>6924</td><td>0.00011</td></tr>
+<tr><td>few-shot × deepseek-v4-pro</td><td>12/13 (92%)</td><td>8298</td><td>0.00150</td></tr>
+<tr><td>few-shot × minimax-m2.7</td><td>12/13 (92%)</td><td>6676</td><td>0.00042</td></tr>
+<tr><td>few-shot × glm-5.2</td><td>11/13 (85%)</td><td>3380</td><td>0.00088</td></tr>
+<tr><td>few-shot × gemma-4-31b-it</td><td>12/13 (92%)</td><td>1800</td><td>0.00012</td></tr>
+<tr><td>few-shot × gpt-4.1-nano</td><td>12/13 (92%)</td><td>2742</td><td>0.00015</td></tr>
+<tr><td>clarify-first × claude-haiku-4.5</td><td>4/13 (31%)</td><td>2441</td><td>0.00193</td></tr>
+<tr><td>clarify-first × gpt-4o-mini</td><td>6/13 (46%)</td><td>1082</td><td>0.00011</td></tr>
+<tr><td>clarify-first × gemini-2.5-flash</td><td>6/13 (46%)</td><td>998</td><td>0.00025</td></tr>
+<tr><td>clarify-first × deepseek-v4-flash</td><td>9/13 (69%)</td><td>5566</td><td>0.00008</td></tr>
+<tr><td>clarify-first × deepseek-v4-pro</td><td>9/13 (69%)</td><td>8239</td><td>0.00061</td></tr>
+<tr><td>clarify-first × minimax-m2.7</td><td>9/13 (69%)</td><td>7028</td><td>0.00045</td></tr>
+<tr><td>clarify-first × glm-5.2</td><td>9/13 (69%)</td><td>3455</td><td>0.00092</td></tr>
+<tr><td>clarify-first × gemma-4-31b-it</td><td>5/13 (38%)</td><td>2716</td><td>0.00010</td></tr>
+<tr><td>clarify-first × gpt-4.1-nano</td><td>4/13 (31%)</td><td>1408</td><td>0.00008</td></tr>
+</table>
+<h3>Failures</h3>
+<p><strong>zero-shot × claude-haiku-4.5</strong>: q07 (called search_events); q14 (geo params, Neukölln or Schillerkiez query); q23 (date_from = tomorrow evening, live-music intent in query/subcategory)</p>
+<p><strong>zero-shot × gpt-4o-mini</strong>: q07 (semantic query set (vibe needs ranking)); q14 (geo params, Neukölln or Schillerkiez query); q23 (live-music intent in query/subcategory)</p>
+<p><strong>zero-shot × gemini-2.5-flash</strong>: q07 (called search_events); q14 (geo params, Neukölln or Schillerkiez query); q19 (attempted a search)</p>
+<p><strong>zero-shot × deepseek-v4-flash</strong>: q07 (semantic query set (vibe needs ranking)); q14 (geo params, Neukölln or Schillerkiez query); q18 (no tool before clarifying, asked a clarifying question); q23 (date_from = tomorrow evening, live-music intent in query/subcategory)</p>
+<p><strong>zero-shot × deepseek-v4-pro</strong>: q14 (geo params, Neukölln or Schillerkiez query); q18 (no tool before clarifying, asked a clarifying question); q23 (date_from = tomorrow evening, live-music intent in query/subcategory)</p>
+<p><strong>zero-shot × minimax-m2.7</strong>: q14 (called search_events); q23 (date_from = tomorrow evening, live-music intent in query/subcategory)</p>
+<p><strong>zero-shot × glm-5.2</strong>: q07 (semantic query set (vibe needs ranking)); q18 (no tool before clarifying, asked a clarifying question); q23 (live-music intent in query/subcategory)</p>
+<p><strong>zero-shot × gemma-4-31b-it</strong>: q14 (geo params, Neukölln or Schillerkiez query); q23 (date_from = tomorrow evening)</p>
+<p><strong>zero-shot × gpt-4.1-nano</strong>: q16 (date window covers Sunday); q23 (date_from = tomorrow evening)</p>
+<p><strong>prod-v1 × claude-haiku-4.5</strong>: q14 (geo params, Neukölln or Schillerkiez query); q16 (date window covers Sunday); q23 (date_from = tomorrow evening)</p>
+<p><strong>prod-v1 × gpt-4o-mini</strong>: q07 (semantic query set (vibe needs ranking)); q14 (geo params, Neukölln or Schillerkiez query); q18 (no tool before clarifying, asked a clarifying question); q23 (live-music intent in query/subcategory)</p>
+<p><strong>prod-v1 × gemini-2.5-flash</strong>: q14 (geo params, Neukölln or Schillerkiez query)</p>
+<p><strong>prod-v1 × deepseek-v4-flash</strong>: q07 (semantic query set (vibe needs ranking)); q18 (no tool before clarifying, asked a clarifying question); q23 (date_from = tomorrow evening); q25 (family_friendly=true)</p>
+<p><strong>prod-v1 × deepseek-v4-pro</strong>: q07 (semantic query set (vibe needs ranking)); q18 (no tool before clarifying, asked a clarifying question); q23 (date_from = tomorrow evening, live-music intent in query/subcategory)</p>
+<p><strong>prod-v1 × minimax-m2.7</strong>: q07 (semantic query set (vibe needs ranking)); q11 (free_entry=true); q18 (no tool before clarifying, asked a clarifying question); q23 (date_from = tomorrow evening, live-music intent in query/subcategory)</p>
+<p><strong>prod-v1 × glm-5.2</strong>: q18 (no tool before clarifying, asked a clarifying question); q23 (live-music intent in query/subcategory)</p>
+<p><strong>prod-v1 × gemma-4-31b-it</strong>: q14 (geo params, Neukölln or Schillerkiez query); q18 (no tool before clarifying, asked a clarifying question)</p>
+<p><strong>prod-v1 × gpt-4.1-nano</strong>: q18 (no tool before clarifying, asked a clarifying question)</p>
+<p><strong>few-shot × claude-haiku-4.5</strong>: q16 (date window covers Sunday)</p>
+<p><strong>few-shot × gpt-4o-mini</strong>: q18 (no tool before clarifying, asked a clarifying question)</p>
+<p><strong>few-shot × gemini-2.5-flash</strong>: q07 (called search_events); q17 (searched first (answer-first policy)); q23 (called search_events); q24 (called search_events); q25 (called search_events)</p>
+<p><strong>few-shot × deepseek-v4-flash</strong>: q18 (no tool before clarifying, asked a clarifying question); q25 (family_friendly=true)</p>
+<p><strong>few-shot × deepseek-v4-pro</strong>: q18 (no tool before clarifying, asked a clarifying question)</p>
+<p><strong>few-shot × minimax-m2.7</strong>: q23 (live-music intent in query/subcategory)</p>
+<p><strong>few-shot × glm-5.2</strong>: q18 (no tool before clarifying, asked a clarifying question); q23 (live-music intent in query/subcategory)</p>
+<p><strong>few-shot × gemma-4-31b-it</strong>: q18 (no tool before clarifying, asked a clarifying question)</p>
+<p><strong>few-shot × gpt-4.1-nano</strong>: q18 (no tool before clarifying, asked a clarifying question)</p>
+<p><strong>clarify-first × claude-haiku-4.5</strong>: q07 (called search_events); q11 (called search_events); q14 (called search_events); q16 (called search_events); q17 (searched first (answer-first policy)); q21 (called search_events); q23 (called search_events); q24 (called search_events); q25 (called search_events)</p>
+<p><strong>clarify-first × gpt-4o-mini</strong>: q07 (called search_events); q11 (called search_events); q14 (geo params, Neukölln or Schillerkiez query); q17 (searched first (answer-first policy)); q21 (called search_events); q23 (called search_events); q25 (called search_events)</p>
+<p><strong>clarify-first × gemini-2.5-flash</strong>: q07 (called search_events); q14 (called search_events); q16 (called search_events); q17 (searched first (answer-first policy)); q19 (attempted a search); q23 (called search_events); q24 (called search_events)</p>
+<p><strong>clarify-first × deepseek-v4-flash</strong>: q07 (called search_events); q17 (searched first (answer-first policy)); q23 (date_from = tomorrow evening, live-music intent in query/subcategory); q25 (family_friendly=true)</p>
+<p><strong>clarify-first × deepseek-v4-pro</strong>: q07 (called search_events); q17 (searched first (answer-first policy)); q23 (date_from = tomorrow evening); q25 (family_friendly=true)</p>
+<p><strong>clarify-first × minimax-m2.7</strong>: q07 (called search_events); q17 (searched first (answer-first policy)); q23 (live-music intent in query/subcategory); q25 (called search_events)</p>
+<p><strong>clarify-first × glm-5.2</strong>: q07 (called search_events); q17 (searched first (answer-first policy)); q23 (live-music intent in query/subcategory); q25 (date window covers the weekend)</p>
+<p><strong>clarify-first × gemma-4-31b-it</strong>: q07 (called search_events); q14 (called search_events); q16 (called search_events); q17 (searched first (answer-first policy)); q21 (called search_events); q23 (called search_events); q24 (called search_events); q25 (called search_events)</p>
+<p><strong>clarify-first × gpt-4.1-nano</strong>: q07 (called search_events); q11 (called search_events); q14 (called search_events); q16 (called search_events); q17 (searched first (answer-first policy)); q21 (called search_events); q23 (called search_events); q24 (called search_events); q25 (called search_events)</p></section>
+
+<footer>Pulse · spec-driven development (OpenSpec) · benchmarks are regression gates:
+re-run on every model or prompt change.</footer>
+</body></html>
