@@ -27,6 +27,7 @@ export type ToolLog = {
   results: number;
   ms: number;
   degraded?: boolean;
+  relaxed?: boolean;
 }[];
 
 export function buildTools(opts: {
@@ -90,34 +91,61 @@ export function buildTools(opts: {
           qvec = await embedQuery(args.query);
           degraded = qvec === null; // embedding down -> filter-only, never broken
         }
-        const { data, error } = await supabaseAnon.rpc("match_events", {
-          query_embedding: qvec,
-          // lexical title boost: exact-name lookups work even for unembedded events
-          ...(args.query ? { p_query_text: args.query.slice(0, 80) } : {}),
-          p_category: args.category ?? null,
-          p_subcategory: args.subcategory ?? null,
-          ...(dateFrom ? { p_date_from: dateFrom } : {}),
-          ...(dateTo ? { p_date_to: dateTo } : {}),
-          p_neighborhood: args.neighborhood ?? null,
-          p_venue: args.venue ?? null,
-          p_family: args.family_friendly ?? false,
-          p_outdoor: args.outdoor ?? false,
-          p_free: args.free_entry ?? false,
-          p_max_price_cents: args.max_price_cents ?? null,
-          p_lat: args.lat ?? null,
-          p_lng: args.lng ?? null,
-          p_radius_km: args.radius_km ?? 1.5,
-          p_limit: args.limit ?? 10,
-        });
+        const runMatch = (category: string | null, subcategory: string | null) =>
+          supabaseAnon.rpc("match_events", {
+            query_embedding: qvec,
+            // lexical title boost: exact-name lookups work even for unembedded events
+            ...(args.query ? { p_query_text: args.query.slice(0, 80) } : {}),
+            p_category: category,
+            p_subcategory: subcategory,
+            ...(dateFrom ? { p_date_from: dateFrom } : {}),
+            ...(dateTo ? { p_date_to: dateTo } : {}),
+            p_neighborhood: args.neighborhood ?? null,
+            p_venue: args.venue ?? null,
+            p_family: args.family_friendly ?? false,
+            p_outdoor: args.outdoor ?? false,
+            p_free: args.free_entry ?? false,
+            p_max_price_cents: args.max_price_cents ?? null,
+            p_lat: args.lat ?? null,
+            p_lng: args.lng ?? null,
+            p_radius_km: args.radius_km ?? 1.5,
+            p_limit: args.limit ?? 10,
+          });
+
+        const first = await runMatch(args.category ?? null, args.subcategory ?? null);
+        const error = first.error;
+        let data = first.data;
+
+        // Sparse-taxonomy degrade (hip-hop incident): genre-ish subcategories are
+        // nearly empty buckets, so a strict filter can zero out while the vector
+        // ranking would find the right events. If a filtered search with a query
+        // comes back empty, retry once without category/subcategory and let the
+        // embedding rank across everything. Deterministic — prompts ask nicely,
+        // code enforces (same pattern as the date guards above).
+        let relaxed = false;
+        if (
+          !error &&
+          (data?.length ?? 0) === 0 &&
+          args.query &&
+          (args.category || args.subcategory)
+        ) {
+          const retry = await runMatch(null, null);
+          if (!retry.error && (retry.data?.length ?? 0) > 0) {
+            data = retry.data;
+            relaxed = true;
+          }
+        }
+
         log.push({
           tool: "search_events",
           args: { ...args, query: args.query?.slice(0, 60) },
           results: data?.length ?? 0,
           ms: Date.now() - t0,
           ...(degraded ? { degraded } : {}),
+          ...(relaxed ? { relaxed } : {}),
         });
         if (error) return { error: "search failed — apologise briefly and suggest retrying" };
-        if ((data?.length ?? 0) === 0 && (args.query || args.venue)) {
+        if (!relaxed && (data?.length ?? 0) === 0 && (args.query || args.venue)) {
           // Demand queue: a zero-result search is the purest signal of what users
           // want and we lack — the discovery agent scouts these first. Fire-and-
           // forget; logging must never delay or break the answer.
@@ -131,6 +159,13 @@ export function buildTools(opts: {
         }
         return {
           ...(degraded ? { note: "semantic ranking unavailable; results are filter-only" } : {}),
+          ...(relaxed
+            ? {
+                note:
+                  "the category/subcategory filter matched nothing, so results are " +
+                  "ranked by meaning across all categories — they may span formats",
+              }
+            : {}),
           events: (data ?? []).map((e: Record<string, unknown>) => ({
             id: e.id,
             title: e.title,

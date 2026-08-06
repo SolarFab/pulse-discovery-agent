@@ -14,6 +14,7 @@ experiments evaluate.
 |---|---|
 | `route.ts` | The endpoint, and **the system prompt** — the artifact `benchmark_prompts.py` tested across 9 models |
 | `tools.ts` | The two tool definitions the model calls, and the deterministic guards around them |
+| `tools.test.ts` | The unit tests, including the ones pinning the sparse-genre incident |
 | `match_events.sql` | **The retrieval itself**: vector similarity ranked *inside* strict SQL filters |
 | `match_events_title_boost.sql` | The revision that added a lexical title boost — see finding F3 |
 
@@ -59,16 +60,37 @@ or inferred**:
 | `venue`, `neighborhood` | extracted, fuzzy-matched | strict — acceptable |
 | `category`, `subcategory`, facets | **LLM-inferred, ~6% wrong** | strict — *dangerous* |
 
-Mitigations shipped after that incident: a lexical title boost so exact-name and keyword
-matches surface even when labels are wrong (F3), a deterministic pre-pass that beats the LLM
-on unambiguous signals like "stand-up" (F4), 195 events refiled, and the kNN audit itself.
-The prompt also marks soft preferences explicitly — "gern draußen … do NOT hard-filter".
+### What changed as a result
 
-**The honest status: those are patches, not the fix.** Genre is still a hard gate whenever the
-model chooses to pass one, and a 6% label error rate is still a 6% invisibility rate for
-those queries. The correct design is probably to demote inferred labels to a ranking boost
-and let the embedding carry genre — which is measurable with the golden set already in this
-repo, and has not been measured yet.
+The first round of responses were mitigations for *known* cases: a lexical title boost so
+exact-name matches surface even when labels are wrong (F3), a deterministic pre-pass that
+beats the LLM on unambiguous signals like "stand-up" (F4), 195 events refiled, and the kNN
+audit that produced the 6.2% figure. Those fixed the comedy query. They did nothing for the
+next sparse genre — hip-hop, which failed the same way.
+
+So the gate itself changed. `tools.ts` now applies a **relax-on-empty** rule: if a search
+carrying a text query and a genre filter returns zero rows, it retries once with the filters
+dropped and lets the embedding rank across everything, flagging `relaxed` so the model can
+tell the user. Two restraints matter as much as the rule:
+
+- **no retry for pure filter browsing** without a query — an empty Tuesday is honestly empty,
+  and inventing results for it would be worse than the original bug;
+- **no retry when the RPC actually errored** — a relax must never mask a failure.
+
+`route.ts` also stopped *teaching* the failure: worked example 1 no longer passes
+`subcategory: "jazz-blues"`. Genre goes in `query`; `subcategory` is reserved for explicit
+format requests. And `log_discovery_miss` now fires only when the relaxed search is *also*
+empty — "hip hop" was being recorded as unmet demand while nine hip-hop events sat in the
+database, poisoning the discovery agent's priority queue with work it did not need to do.
+
+`tools.test.ts` pins the incident: strict filter → empty → relaxed retry → results, with the
+correct flags and miss-logging suppressed.
+
+**Remaining honestly open.** This removes the failure's *consequence*, not its cause. Labels
+are still ~6% wrong; a genre filter that returns a small number of wrong-but-nonzero rows
+still never triggers the relax, because zero results is the only signal being watched. The
+structural fix — genre as a properly populated dimension, or demoted to a ranking boost
+outright — is measurable with the golden set in this repo and has not been measured.
 
 ## Things worth noticing, and why they are there
 

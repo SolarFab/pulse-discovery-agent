@@ -56,7 +56,7 @@ TOOLS:
 - get_event_details only when the user asks for more about one specific event.
 
 WORKED EXAMPLES (how to translate questions into tool calls):
-1. "Jazz heute Abend?" → search_events({ query: "jazz", subcategory: "jazz-blues", date_from: <today 17:00>, date_to: <tomorrow 05:00> })
+1. "Jazz heute Abend?" → search_events({ query: "jazz konzert", date_from: <today 17:00>, date_to: <tomorrow 05:00> }) — genre and vibe belong in query (the semantic ranking reads descriptions); subcategory is a strict filter over a sparsely-tagged column, so use it only when the user explicitly asks for a format like an exhibition or club night, never for a music genre.
 2. "Was läuft diese Woche im SchwuZ?" → search_events({ venue: "SchwuZ", date_from: <now>, date_to: <+7 days> })
 3. "Kostenlos was mit Kindern am Sonntag, gern draußen" → search_events({ query: "kinder draußen", family_friendly: true, free_entry: true, date_from: <Sunday 00:00>, date_to: <Sunday 23:59> }) — "gern draußen" is a soft preference: rank it via query, do NOT hard-filter outdoor unless the user insists.
 4. "Was geht im Schillerkiez?" → search_events({ query: "Schillerkiez", lat: 52.474, lng: 13.428, radius_km: 1.2, date_from: <today> })
