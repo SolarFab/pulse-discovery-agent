@@ -6,9 +6,13 @@ question: once the events are in the database, **does asking for them in natural
 actually return the right ones?**
 
 The system under test is Pulse's concierge — a tool-calling chat over a pgvector index of
-Berlin events. Its application code lives in a private product repo; **everything needed to
-judge the engineering is here**: the frozen golden set, the hand-labeled relevance
-judgements, the experiment scripts, the reports, and the rendered result artifacts.
+Berlin events. **The code under test is in [`concierge/`](concierge/)**: the endpoint and its
+system prompt, the two tool definitions, and the SQL retrieval function. Alongside it: the
+frozen golden set, the hand-labeled relevance judgements, the experiment scripts, the
+reports, and the rendered result artifacts.
+
+Not included, by design: how events get *into* the database. The scrapers and the sources
+they read are the product's own work, and are not what these experiments measure.
 
 > **The scripts do not run standalone.** They import the product's pipeline (`pipeline.embedder`,
 > `db.supabase`) and read a live index. They are included as the record of *how* each number
@@ -22,6 +26,7 @@ and reports classical IR metrics plus cost and latency.
 
 | Piece | What it is |
 |---|---|
+| `concierge/` | **The code under test** — system prompt, tool definitions, retrieval SQL |
 | `golden_set/v1.jsonl` | 25 real questions ("jazz tonight", "something with my kids on the weekend, outside") |
 | `golden_set/qrels_*.jsonl` | Hand-labeled relevance, **four rounds** — see below |
 | `prompts/*.txt` | The four prompt variants compared (zero-shot, few-shot, clarify-first, production) |
