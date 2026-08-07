@@ -34,21 +34,62 @@ ALLOWED_TYPES = ("text/html", "text/plain", "text/calendar", "text/xml",
                  "application/xml", "application/rss", "application/atom",
                  "application/json", "application/ld+json", "application/xhtml")
 
+# Binding the source to an IPv4 address forces IPv4 for every connection. That is
+# what lets _resolve_public() judge only the A records: we validate the family we
+# dial, and we dial only the family we validated. Without this pin the check would
+# be a lie — httpx could still pick an unvalidated AAAA.
+_TRANSPORT = httpx.HTTPTransport(local_address="0.0.0.0", retries=0)
+_CLIENT = httpx.Client(transport=_TRANSPORT, headers={"User-Agent": UA},
+                       follow_redirects=False)
+
+
+def _http_get(url: str, timeout: float = 20.0) -> httpx.Response:
+    """The single seam for every outbound request: IPv4-pinned, never auto-redirecting.
+
+    One function so the wall has exactly one way out — and so tests have exactly one
+    thing to stub.
+    """
+    return _CLIENT.get(url, timeout=timeout)
+
 
 class FetchRefused(Exception):
     """The wall said no. The reason is safe to show the model as data."""
 
 
+def _is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified)
+
+
 def _resolve_public(host: str) -> None:
-    """Reject hosts that resolve to any non-public address (SSRF wall)."""
+    """Reject hosts unless every address we could CONNECT to is public.
+
+    Judged per address family, because we pin the family we use (IPv4 — see
+    _CLIENT below). Checking every family and refusing on any bad record cost real
+    coverage: www.planetarium.berlin publishes a malformed AAAA
+    (`a01:4f8:…`, the leading `2` dropped, which lands in reserved space) alongside
+    a perfectly good A record. That venue has ~2,900 events and was written off as
+    unreachable over an address we would never dial.
+
+    Still strict where it matters: if ANY address in the family we actually use is
+    non-public, the host is refused. A DNS-rebinding attacker cannot get us to
+    connect to something we did not validate, because we only ever use that family.
+    """
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror as exc:
         raise FetchRefused(f"DNS failed for {host}") from exc
+
+    by_family: dict[int, list] = {}
     for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if (ip.is_private or ip.is_loopback or ip.is_link_local
-                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+        by_family.setdefault(info[0], []).append(ipaddress.ip_address(info[4][0]))
+
+    # IPv4 is the family the client pins; fall back to IPv6 only for v6-only hosts.
+    addrs = by_family.get(socket.AF_INET) or by_family.get(socket.AF_INET6) or []
+    if not addrs:
+        raise FetchRefused(f"DNS returned no usable address for {host}")
+    for ip in addrs:
+        if not _is_public(ip):
             raise FetchRefused(f"{host} resolves to non-public address {ip}")
 
 
@@ -91,8 +132,7 @@ class FetchSession:
                 # answers `302 -> http://169.254.169.254/` would have this process
                 # make that request. A robots.txt we decline to chase is simply
                 # treated as absent, which the except branch below already allows.
-                resp = httpx.get(f"https://{host}/robots.txt", timeout=10,
-                                 headers={"User-Agent": UA}, follow_redirects=False)
+                resp = _http_get(f"https://{host}/robots.txt", timeout=10)
                 rp.parse(resp.text.splitlines() if resp.status_code == 200 else [])
             except httpx.HTTPError:
                 rp.parse([])  # unreachable robots.txt -> allow (standard practice)
@@ -128,8 +168,7 @@ class FetchSession:
 
         current = url
         for _ in range(MAX_REDIRECTS + 1):
-            resp = httpx.get(current, timeout=20, headers={"User-Agent": UA},
-                             follow_redirects=False)
+            resp = _http_get(current)
             if resp.status_code in (301, 302, 303, 307, 308):
                 location = resp.headers.get("location")
                 if not location:

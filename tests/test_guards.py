@@ -58,7 +58,7 @@ def test_redirect_to_private_refused(monkeypatch):
         content = b""
         text = ""
 
-    monkeypatch.setattr(guards.httpx, "get", lambda *a, **k: FakeResp())
+    monkeypatch.setattr(guards, "_http_get", lambda *a, **k: FakeResp())
     s = FetchSession()
     s._robots_ok = lambda url, host: True  # isolate the redirect check
     with pytest.raises(FetchRefused, match="non-public"):
@@ -94,7 +94,7 @@ def test_http_redirect_hop_is_followed_but_never_read(monkeypatch):
             return Resp(301, hops[1])
         return Resp(200)
 
-    monkeypatch.setattr(guards.httpx, "get", fake_get)
+    monkeypatch.setattr(guards, "_http_get", fake_get)
     s = FetchSession()
     s._robots_ok = lambda url, host: True
     resp = s.guarded_fetch("https://venue.example/")
@@ -116,14 +116,18 @@ def test_robots_fetch_does_not_follow_redirects(monkeypatch):
         text = ""
 
     def fake_get(url, **kw):
-        calls.append((url, kw.get("follow_redirects")))
+        calls.append(url)
         return Resp()
 
-    monkeypatch.setattr(guards.httpx, "get", fake_get)
+    monkeypatch.setattr(guards, "_http_get", fake_get)
     s = FetchSession()
     # a robots.txt we decline to chase counts as absent, i.e. allowed
     assert s._robots_ok("https://venue.example/programm", "venue.example")
-    assert calls == [("https://venue.example/robots.txt", False)]
+    assert calls == ["https://venue.example/robots.txt"]
+    # The no-auto-redirect guarantee now lives in the shared client rather than in
+    # each call site, so assert it where it actually is: nothing may chase a
+    # Location header without re-running the IP check.
+    assert guards._CLIENT.follow_redirects is False
 
 
 def _redirecting_client(monkeypatch, target):
@@ -141,7 +145,7 @@ def _redirecting_client(monkeypatch, target):
     def fake_get(url, **_kw):
         return Resp(302, target) if url == "https://venue.example/tickets" else Resp(200)
 
-    monkeypatch.setattr(guards.httpx, "get", fake_get)
+    monkeypatch.setattr(guards, "_http_get", fake_get)
     monkeypatch.setattr(guards.socket, "getaddrinfo", _fake_resolver({
         "venue.example": "93.184.216.34",
         "elsewhere.example": "93.184.216.34",
@@ -199,7 +203,7 @@ def test_http_final_response_is_refused(monkeypatch):
             return Resp(301, "http://venue.example/insecure")
         return Resp(200)
 
-    monkeypatch.setattr(guards.httpx, "get", fake_get)
+    monkeypatch.setattr(guards, "_http_get", fake_get)
     s = FetchSession()
     s._robots_ok = lambda url, host: True
     with pytest.raises(FetchRefused, match="refusing to read content"):

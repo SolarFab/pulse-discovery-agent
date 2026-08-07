@@ -49,7 +49,7 @@ def test_injection_page_content_is_wrapped_as_data(monkeypatch):
         def raise_for_status(self):
             pass
 
-    monkeypatch.setattr(guards.httpx, "get", lambda *a, **k: FakeResp())
+    monkeypatch.setattr(guards, "_http_get", lambda *a, **k: FakeResp())
     s = FetchSession()
     s._robots_ok = lambda url, host: True
     out = fetch_page(s, "https://venue.example/")
