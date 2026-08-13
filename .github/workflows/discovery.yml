@@ -11,7 +11,18 @@ name: Discovery
 on:
   schedule:
     - cron: "15 3 * * *"    # 03:15 UTC nightly — harvest
-    - cron: "45 4 * * 1"    # 04:45 UTC Mondays — scout
+    # Weekly scout is PAUSED (2026-08-13). It works, but its hit rate does not yet
+    # justify standing spend: across 43 logged runs it found 10 recipes and 7
+    # Instagram leads for $3.27 — successes cost $0.04 on average, failures $0.11,
+    # and failures outnumber successes two to one. Harvest is unaffected: it costs
+    # nothing, needs no LLM key, and keeps the existing recipes producing events.
+    #
+    # Re-enable by uncommenting this ONE line. The scout job below still tests for
+    # this cron string in its `if:` — that condition is deliberately left in place
+    # so re-enabling needs no second edit. Do not "clean it up".
+    # Until then the scout still runs on demand via workflow_dispatch (job: scout),
+    # which is how the pilot and the demo run it.
+    # - cron: "45 4 * * 1"    # 04:45 UTC Mondays — scout
   workflow_dispatch:
     inputs:
       job:
