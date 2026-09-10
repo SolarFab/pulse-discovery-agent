@@ -157,4 +157,4 @@ Event data comes from public sources; this is not a medical or safety-critical s
 
 ## Course brief
 This repository is the submission for the Turing College AI Engineering capstone; the
-assignment brief is preserved verbatim in [`AE.CAP_afa.md`](AE.CAP_afa.md).
+assignment brief is the programme's own document and is not reproduced here.
